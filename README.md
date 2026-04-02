@@ -74,12 +74,12 @@ The repo includes `.vscode/mcp.json` which auto-registers the MCP server. If you
 
 **List all clusters in a subscription:**
 ```
-User: List my ARO clusters in subscription c9c7cf8f-4648-436a-a60e-d23e8d0cae22
+User: List my ARO clusters in subscription <YOUR_SUBSCRIPTION_ID>
 ```
 
 **Get specific cluster details:**
 ```
-User: Get details of aro-mcp-cluster in resource group aro-mcp-centralus
+User: Get details of my-aro-cluster in resource group my-aro-rg
 ```
 
 **Check cluster health:**
@@ -112,17 +112,46 @@ The tool returns cluster metadata including:
 
 The `aro-deploy/` directory contains a Bicep template for creating an ARO cluster with **managed identity** (no service principal needed). This avoids credential lifetime policy issues common in enterprise tenants.
 
-### Deploy an ARO cluster
+### Prerequisites for Deployment
+
+1. **Register the ARO resource provider** (one-time per subscription):
+   ```bash
+   az provider register --namespace Microsoft.RedHatOpenShift --wait
+   az provider show --namespace Microsoft.RedHatOpenShift --query "registrationState" -o tsv
+   # Should output: Registered
+   ```
+
+2. **Check available ARO versions** in your target region:
+   ```bash
+   az aro get-versions --location centralus -o table
+   ```
+
+3. **Verify VM SKU availability** (some subscriptions restrict certain SKUs):
+   ```bash
+   az vm list-skus --location centralus --resource-type virtualMachines \
+     --query "[?name=='Standard_D8s_v3'].restrictions" -o table
+   ```
+   If restricted, try a different region or VM size.
+
+4. **Get the ARO Resource Provider service principal Object ID**:
+   ```bash
+   az ad sp list --display-name "Azure Red Hat OpenShift RP" --query '[0].id' -o tsv
+   ```
+
+### Deploy an ARO Cluster
 
 ```bash
+# Set variables
 LOCATION=centralus
 RESOURCEGROUP=aro-rg
 CLUSTER=my-aro-cluster
-VERSION=4.18.34
+VERSION=4.18.34    # Use a version from az aro get-versions
 ARO_RP_SP_OBJECT_ID=$(az ad sp list --display-name "Azure Red Hat OpenShift RP" --query '[0].id' -o tsv)
 
+# Create resource group
 az group create --name $RESOURCEGROUP --location $LOCATION
 
+# Deploy ARO cluster (~35-45 minutes)
 az deployment group create \
   --name aroDeployment \
   --resource-group $RESOURCEGROUP \
@@ -133,16 +162,64 @@ az deployment group create \
   --parameters rpObjectId=$ARO_RP_SP_OBJECT_ID
 ```
 
-The Bicep template creates:
-- Virtual network with master/worker subnets
-- 9 user-assigned managed identities (cluster + 8 operator identities)
-- 20 role assignments for operator permissions
-- ARO cluster with `platformWorkloadIdentityProfile`
+> **Note:** Deployment takes approximately 35-45 minutes. If a role assignment fails due to identity propagation delays, simply re-run the deployment — it is idempotent.
 
-### Check available versions
+### What the Bicep Template Creates
+
+| Resource | Count | Description |
+|---|---|---|
+| Virtual Network | 1 | With master and worker subnets |
+| User-Assigned Managed Identities | 9 | Cluster identity + 8 operator identities |
+| Role Assignments | 20 | Permissions for all operator identities |
+| ARO Cluster | 1 | With `platformWorkloadIdentityProfile` and managed identity |
+
+Default configuration:
+- **Master nodes:** 3x `Standard_D8s_v3`
+- **Worker nodes:** 3x `Standard_D4s_v3` (128 GB disk)
+- **Network:** Pod CIDR `10.128.0.0/14`, Service CIDR `172.30.0.0/16`
+- **Visibility:** Public API server and ingress
+
+### Customizable Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `location` | Resource group location | Azure region |
+| `version` | *(required)* | OpenShift version (e.g., `4.18.34`) |
+| `clusterName` | *(required)* | Unique cluster name |
+| `rpObjectId` | *(required)* | ARO RP service principal Object ID |
+| `masterVmSize` | `Standard_D8s_v3` | Master node VM size |
+| `workerVmSize` | `Standard_D4s_v3` | Worker node VM size |
+| `workerVmDiskSize` | `128` | Worker disk size in GB |
+| `apiServerVisibility` | `Public` | `Public` or `Private` |
+| `ingressVisibility` | `Public` | `Public` or `Private` |
+| `fips` | `Disabled` | FIPS-validated crypto modules |
+| `pullSecret` | *(empty)* | Red Hat pull secret from cloud.redhat.com |
+
+### Post-Deployment
 
 ```bash
-az aro get-versions --location centralus -o table
+# Verify cluster is running
+az aro show --name $CLUSTER --resource-group $RESOURCEGROUP \
+  --query "{state:provisioningState, console:consoleProfile.url, api:apiserverProfile.url}" -o table
+
+# Get cluster credentials
+az aro list-credentials --name $CLUSTER --resource-group $RESOURCEGROUP
+
+# Access the OpenShift console
+az aro show --name $CLUSTER --resource-group $RESOURCEGROUP --query consoleProfile.url -o tsv
+
+# Login with oc CLI
+API_URL=$(az aro show --name $CLUSTER --resource-group $RESOURCEGROUP --query apiserverProfile.url -o tsv)
+KUBEADMIN_PASS=$(az aro list-credentials --name $CLUSTER --resource-group $RESOURCEGROUP --query kubeadminPassword -o tsv)
+oc login $API_URL -u kubeadmin -p $KUBEADMIN_PASS
+```
+
+### Cleanup
+
+```bash
+# Delete the ARO cluster and all resources
+az aro delete --name $CLUSTER --resource-group $RESOURCEGROUP --yes
+az group delete --name $RESOURCEGROUP --yes --no-wait
 ```
 
 ## Project Structure
