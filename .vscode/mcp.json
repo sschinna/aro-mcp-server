@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "aro-cluster-setup-and-issues": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/servers/Azure.Mcp.Server/src/Azure.Mcp.Server.csproj",
+        "--",
+        "server",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}
