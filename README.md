@@ -24,7 +24,7 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login` authenticated)
 - [VS Code](https://code.visualstudio.com/) with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension
 - An Azure subscription with the `Microsoft.RedHatOpenShift` resource provider registered
-- This server depends on the [microsoft/mcp](https://github.com/microsoft/mcp) core libraries — clone that repo and reference it, or build as part of the full solution
+- This server depends on the [microsoft/mcp](https://github.com/microsoft/mcp) core libraries — clone that repo as `msft-aro-mcp` and reference it, or build as part of the full solution
 
 ## Quick Start
 
@@ -262,6 +262,15 @@ aro-mcp-server/
 | 2-5 | Clone this repo, each person runs locally |
 | 5-20 | Publish a self-contained binary: `dotnet publish -c Release -r win-x64 --self-contained` |
 | 20+ | Host as HTTP/SSE server for centralized access |
+
+### Build from Source
+
+```bash
+git clone https://github.com/microsoft/mcp.git msft-aro-mcp
+cd msft-aro-mcp
+# Copy ARO tools into the repo (or clone aro-mcp-server alongside)
+dotnet build
+```
 
 ## License
 
