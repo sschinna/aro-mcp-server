@@ -2,9 +2,15 @@
   <PropertyGroup>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <AzmcpDir Condition="'$(AzmcpDir)' == ''">$(USERPROFILE)\.aro-mcp</AzmcpDir>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\core\Azure.Mcp.Core\tests\Azure.Mcp.Tests\Azure.Mcp.Tests.csproj" />
+    <Reference Include="Microsoft.Mcp.Core">
+      <HintPath>$(AzmcpDir)\Microsoft.Mcp.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Azure.Mcp.Core">
+      <HintPath>$(AzmcpDir)\Azure.Mcp.Core.dll</HintPath>
+    </Reference>
     <ProjectReference Include="..\..\src\Azure.Mcp.Tools.Aro.csproj" />
   </ItemGroup>
   <ItemGroup>

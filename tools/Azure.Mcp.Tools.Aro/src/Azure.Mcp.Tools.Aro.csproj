@@ -1,18 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsAotCompatible>true</IsAotCompatible>
+    <AzmcpDir Condition="'$(AzmcpDir)' == ''">$(USERPROFILE)\.aro-mcp</AzmcpDir>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="**\Resources\*.txt" />
     <EmbeddedResource Include="**\Resources\*.json" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\core\Azure.Mcp.Core\src\Azure.Mcp.Core.csproj" />
+    <Reference Include="Microsoft.Mcp.Core">
+      <HintPath>$(AzmcpDir)\Microsoft.Mcp.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Azure.Mcp.Core">
+      <HintPath>$(AzmcpDir)\Azure.Mcp.Core.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Azure.Core" />
     <PackageReference Include="Azure.ResourceManager" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="System.ClientModel" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 </Project>

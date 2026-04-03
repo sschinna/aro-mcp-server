@@ -37,10 +37,16 @@ cd aro-mcp-server
 
 ### 2. Authenticate with Azure
 
+On Windows, the Azure CLI defaults to WAM (Web Account Manager) broker authentication, which can cause `AADSTS` errors or token cache failures on first use. To avoid this, disable the broker before logging in:
+
 ```bash
+az account clear
+az config set core.enable_broker_on_windows=false
 az login
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
 ```
+
+> **Note:** You only need to run `az account clear` and `az config set` once. After that, `az login` will use browser-based authentication reliably.
 
 ### 3. Configure VS Code
 
@@ -97,6 +103,26 @@ The tool returns cluster metadata including:
 - Ingress profiles
 - Provisioning state
 - Tags
+
+## Troubleshooting
+
+### `az login` fails with AADSTS errors or token cache issues
+
+If you see errors like `Can't find token from MSAL cache`, `AADSTS50076`, or `AADSTS5000224` when running Azure CLI commands:
+
+```bash
+az account clear
+az config set core.enable_broker_on_windows=false
+az login
+```
+
+This disables the Windows WAM broker and switches to browser-based authentication, which is more reliable for MCP server usage.
+
+### MCP server fails to start
+
+1. Verify the `azmcp.exe` path in `.vscode/mcp.json` is correct
+2. Ensure you are authenticated (`az account show`)
+3. Check that the `Microsoft.RedHatOpenShift` resource provider is registered in your subscription
 
 ## Tool Parameters
 
