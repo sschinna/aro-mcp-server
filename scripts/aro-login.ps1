@@ -3,34 +3,59 @@
     Securely authenticates to any ARO cluster without exposing tokens or credentials.
 
 .DESCRIPTION
-    Retrieves kubeadmin credentials from Azure, obtains an OAuth token from the
-    ARO cluster, and configures kubeconfig — all without displaying sensitive values.
-    
-    Credentials are never printed, logged, or stored in shell history. The OAuth
-    token is written only to ~/.kube/config and cleared from memory immediately.
+    Supports two authentication modes:
 
-    Parameters can be provided via command-line arguments, environment variables,
-    or interactive prompts.
+    1. Azure mode (default): Uses Azure CLI to retrieve kubeadmin credentials,
+       obtain an OAuth token, and configure kubeconfig automatically.
+
+    2. Direct API mode (-Direct): Connects directly to the ARO API server using
+       oc login. No Azure subscription or Azure CLI required. Prompts for
+       API server URL, username, and password securely.
+
+    Credentials are never printed, logged, or stored in shell history.
+
+.PARAMETER Direct
+    Switch to enable direct API server login mode (no Azure subscription needed).
+
+.PARAMETER ApiServer
+    API server URL for direct login. Falls back to env var ARO_API_SERVER, then prompts.
+
+.PARAMETER Username
+    Username for direct login. Falls back to env var ARO_USERNAME, then prompts.
 
 .PARAMETER SubscriptionId
-    Azure subscription ID. Falls back to env var AZURE_SUBSCRIPTION_ID, then prompts.
+    Azure subscription ID (Azure mode only). Falls back to env var AZURE_SUBSCRIPTION_ID, then prompts.
 
 .PARAMETER ResourceGroup
-    Resource group name. Falls back to env var ARO_RESOURCE_GROUP, then prompts.
+    Resource group name (Azure mode only). Falls back to env var ARO_RESOURCE_GROUP, then prompts.
 
 .PARAMETER ClusterName
-    ARO cluster name. Falls back to env var ARO_CLUSTER_NAME, then prompts.
+    ARO cluster name (Azure mode only). Falls back to env var ARO_CLUSTER_NAME, then prompts.
 
 .EXAMPLE
-    # Interactive — prompts for all values
+    # Direct API login — prompts for credentials securely
+    .\scripts\aro-login.ps1 -Direct
+
+.EXAMPLE
+    # Direct API login with parameters (password prompted securely)
+    .\scripts\aro-login.ps1 -Direct -ApiServer "https://api.mycluster.eastus.aroapp.io:6443" -Username "kubeadmin"
+
+.EXAMPLE
+    # Direct API login with environment variables
+    $env:ARO_API_SERVER = "https://api.mycluster.eastus.aroapp.io:6443"
+    $env:ARO_USERNAME = "kubeadmin"
+    .\scripts\aro-login.ps1 -Direct
+
+.EXAMPLE
+    # Azure mode — interactive (prompts for all values)
     .\scripts\aro-login.ps1
 
 .EXAMPLE
-    # Fully parameterized
+    # Azure mode — fully parameterized
     .\scripts\aro-login.ps1 -SubscriptionId "xxxxxxxx-..." -ResourceGroup "my-rg" -ClusterName "my-aro"
 
 .EXAMPLE
-    # Using environment variables
+    # Azure mode — using environment variables
     $env:AZURE_SUBSCRIPTION_ID = "xxxxxxxx-..."
     $env:ARO_RESOURCE_GROUP = "my-rg"
     $env:ARO_CLUSTER_NAME = "my-aro"
@@ -38,6 +63,15 @@
 #>
 
 param(
+    [Parameter(Mandatory = $false)]
+    [switch]$Direct,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ApiServer,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Username,
+
     [Parameter(Mandatory = $false)]
     [string]$SubscriptionId,
 
@@ -49,6 +83,93 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# ============================================================================
+# Direct API Server Login Mode (no Azure subscription needed)
+# ============================================================================
+if ($Direct) {
+    Write-Host "Direct API Server Login Mode" -ForegroundColor Cyan
+    Write-Host "  No Azure subscription required." -ForegroundColor Gray
+    Write-Host ""
+
+    # --- Pre-flight: verify oc CLI is available ---
+    $ocCmd = Get-Command oc -ErrorAction SilentlyContinue
+    if (-not $ocCmd) {
+        # Check common install location
+        $ocPath = Join-Path $env:USERPROFILE ".aro-mcp\oc.exe"
+        if (Test-Path $ocPath) {
+            $ocCmd = $ocPath
+        } else {
+            Write-Error "oc CLI is not installed or not in PATH. Install from https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/"
+            exit 1
+        }
+    } else {
+        $ocCmd = $ocCmd.Source
+    }
+
+    # --- Resolve API server URL ---
+    if (-not $ApiServer) {
+        $ApiServer = $env:ARO_API_SERVER
+    }
+    if (-not $ApiServer) {
+        $ApiServer = Read-Host "Enter ARO API Server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)"
+    }
+    if (-not $ApiServer) {
+        Write-Error "API Server URL is required. Pass -ApiServer, set ARO_API_SERVER, or enter interactively."
+        exit 1
+    }
+
+    # --- Resolve username ---
+    if (-not $Username) {
+        $Username = $env:ARO_USERNAME
+    }
+    if (-not $Username) {
+        $Username = Read-Host "Enter username (e.g., kubeadmin)"
+    }
+    if (-not $Username) {
+        Write-Error "Username is required. Pass -Username, set ARO_USERNAME, or enter interactively."
+        exit 1
+    }
+
+    # --- Prompt for password securely (never displayed) ---
+    $securePassword = Read-Host "Enter password" -AsSecureString
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+
+    if (-not $password) {
+        Write-Error "Password is required."
+        exit 1
+    }
+
+    # --- Login with oc ---
+    Write-Host "  Logging in to $ApiServer as $Username..." -ForegroundColor Gray
+    $ocOutput = & $ocCmd login $ApiServer -u $Username -p $password --insecure-skip-tls-verify 2>&1
+
+    # Clear password from memory immediately
+    $password = $null
+    $securePassword = $null
+    [System.GC]::Collect()
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "oc login failed: $ocOutput"
+        exit 1
+    }
+
+    Write-Host ""
+    Write-Host "Successfully authenticated to $ApiServer." -ForegroundColor Green
+    Write-Host "Run oc or kubectl commands directly:" -ForegroundColor Green
+    Write-Host "  oc get nodes" -ForegroundColor Yellow
+    Write-Host "  oc get clusteroperators" -ForegroundColor Yellow
+    Write-Host "  oc get pods -A" -ForegroundColor Yellow
+    Write-Host "  kubectl get nodes" -ForegroundColor Yellow
+    Write-Host "  kubectl top nodes" -ForegroundColor Yellow
+    exit 0
+}
+
+# ============================================================================
+# Azure Mode (default) — uses Azure CLI to retrieve credentials
+# ============================================================================
 
 # --- Resolve parameters from args, env vars, or interactive prompt ---
 
@@ -85,7 +206,7 @@ if (-not $ClusterName) {
     exit 1
 }
 
-Write-Host "Authenticating to ARO cluster '$ClusterName'..." -ForegroundColor Cyan
+Write-Host "Authenticating to ARO cluster '$ClusterName' via Azure CLI..." -ForegroundColor Cyan
 
 # --- Pre-flight: verify Azure CLI is logged in ---
 $azAccount = az account show -o json 2>&1

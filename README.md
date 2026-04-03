@@ -87,9 +87,40 @@ To add it to **another workspace** or **globally**, add this to your VS Code `se
 }
 ```
 
-### 5. Authenticate to your ARO cluster (secure — no tokens exposed)
+### 5. Authenticate to your ARO cluster
 
-The included login script handles the full authentication flow without ever displaying credentials, tokens, or secrets in the terminal or shell history.
+Two authentication modes are available:
+
+#### Option A: Direct API Server Login (no Azure subscription needed)
+
+If you already have the ARO API server URL and credentials (e.g., `kubeadmin` username/password), you can log in directly without any Azure CLI or subscription access:
+
+```powershell
+# Interactive — prompts for API server URL, username, and password (password is hidden)
+.\scripts\aro-login.ps1 -Direct
+```
+
+```powershell
+# With parameters (password is always prompted securely, never passed as argument)
+.\scripts\aro-login.ps1 -Direct `
+  -ApiServer "https://api.mycluster.eastus.aroapp.io:6443" `
+  -Username "kubeadmin"
+```
+
+```powershell
+# With environment variables (password still prompted securely)
+$env:ARO_API_SERVER = "https://api.mycluster.eastus.aroapp.io:6443"
+$env:ARO_USERNAME = "kubeadmin"
+.\scripts\aro-login.ps1 -Direct
+```
+
+> **Security:** The password is always prompted using `Read-Host -AsSecureString` and is never displayed, logged, or stored in shell history. It is cleared from memory immediately after login.
+
+**Requirements:** Only the `oc` CLI is needed. No Azure CLI, no Azure subscription.
+
+#### Option B: Azure CLI Login (automatic credential retrieval)
+
+This mode uses Azure CLI to automatically retrieve kubeadmin credentials and exchange them for an OAuth token — no need to know the password.
 
 **Interactive mode (prompts for all values):**
 ```powershell
@@ -112,7 +143,7 @@ $env:ARO_CLUSTER_NAME = "<YOUR_CLUSTER_NAME>"
 .\scripts\aro-login.ps1
 ```
 
-What the script does:
+What the Azure mode script does:
 1. Verifies Azure CLI login (auto-triggers `az login` if expired)
 2. Retrieves cluster endpoint from Azure
 3. Fetches kubeadmin credentials (never displayed)
@@ -120,12 +151,16 @@ What the script does:
 5. Configures `~/.kube/config` with the token
 6. Clears all sensitive data from memory
 
-After login, use `kubectl` or `oc` without any token flags:
+**Requirements:** Azure CLI (`az`), `kubectl`, an Azure subscription with access to the ARO cluster.
+
+#### After login (either mode)
+
 ```bash
 kubectl get nodes
 kubectl get clusteroperators
 kubectl top nodes
 oc get pods -A
+oc get clusterversion
 ```
 
 ### 6. Use with Copilot
@@ -162,7 +197,7 @@ User: Check DNS health on my ARO cluster
 
 ### With kubectl / oc CLI
 
-After running `.\scripts\aro-login.ps1`:
+After running `.\scripts\aro-login.ps1` (or `.\scripts\aro-login.ps1 -Direct`):
 
 ```bash
 # Node status
@@ -184,6 +219,16 @@ oc get pods -A --field-selector status.phase!=Running
 # Cluster version
 oc get clusterversion
 ```
+
+### Direct oc login (without the script)
+
+If you prefer to log in manually without the script:
+
+```bash
+oc login https://api.mycluster.eastus.aroapp.io:6443 -u kubeadmin -p <password> --insecure-skip-tls-verify
+```
+
+> **Warning:** Passing the password on the command line may expose it in shell history. Prefer using the script with `-Direct` for secure credential handling.
 
 The tool returns cluster metadata including:
 - Cluster profile (domain, version, FIPS status)
