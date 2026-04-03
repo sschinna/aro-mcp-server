@@ -4,3 +4,5 @@ obj/
 *.suo
 .vs/
 *.DotSettings.user
+publish/
+publish.bak/

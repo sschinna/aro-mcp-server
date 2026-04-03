@@ -1,14 +1,15 @@
 {
   "servers": {
-    "aro-cluster-setup-and-issues": {
+    "aro-mcp-server": {
       "type": "stdio",
       "command": "dotnet",
       "args": [
         "run",
         "--project",
-        "${workspaceFolder}/servers/Azure.Mcp.Server/src/Azure.Mcp.Server.csproj",
+        "${workspaceFolder}/tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj",
         "--",
         "server",
+        "start",
         "--transport",
         "stdio"
       ]

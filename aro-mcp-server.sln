@@ -1,0 +1,45 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E-EAC7-C090-1BA3-A61EC2A24D84}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Azure.Mcp.Tools.Aro", "Azure.Mcp.Tools.Aro", "{32B597C4-19E1-CF20-F33D-7581F1935EC1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{BDF0A89E-8FB8-E2A6-F7E2-821394CB5CE3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure.Mcp.Tools.Aro", "tools\Azure.Mcp.Tools.Aro\src\Azure.Mcp.Tools.Aro.csproj", "{2459DDFD-320F-F032-3B0A-2315C91512F3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A891F26A-9BBF-7002-B9E4-3A510DFCB0EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure.Mcp.Tools.Aro.UnitTests", "tools\Azure.Mcp.Tools.Aro\tests\Azure.Mcp.Tools.Aro.UnitTests\Azure.Mcp.Tools.Aro.UnitTests.csproj", "{DEA27AFF-BC25-0BA4-169B-92694E997461}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2459DDFD-320F-F032-3B0A-2315C91512F3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2459DDFD-320F-F032-3B0A-2315C91512F3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2459DDFD-320F-F032-3B0A-2315C91512F3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2459DDFD-320F-F032-3B0A-2315C91512F3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DEA27AFF-BC25-0BA4-169B-92694E997461}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DEA27AFF-BC25-0BA4-169B-92694E997461}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DEA27AFF-BC25-0BA4-169B-92694E997461}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DEA27AFF-BC25-0BA4-169B-92694E997461}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{32B597C4-19E1-CF20-F33D-7581F1935EC1} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+		{BDF0A89E-8FB8-E2A6-F7E2-821394CB5CE3} = {32B597C4-19E1-CF20-F33D-7581F1935EC1}
+		{2459DDFD-320F-F032-3B0A-2315C91512F3} = {BDF0A89E-8FB8-E2A6-F7E2-821394CB5CE3}
+		{A891F26A-9BBF-7002-B9E4-3A510DFCB0EE} = {32B597C4-19E1-CF20-F33D-7581F1935EC1}
+		{DEA27AFF-BC25-0BA4-169B-92694E997461} = {A891F26A-9BBF-7002-B9E4-3A510DFCB0EE}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {29218464-1C5F-4D54-993E-D17682249B5C}
+	EndGlobalSection
+EndGlobal
