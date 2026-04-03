@@ -1,38 +1,113 @@
 <#
 .SYNOPSIS
-    Securely authenticates to an ARO cluster without exposing tokens or credentials.
+    Securely authenticates to any ARO cluster without exposing tokens or credentials.
 
 .DESCRIPTION
     Retrieves kubeadmin credentials from Azure, obtains an OAuth token from the
     ARO cluster, and configures kubeconfig — all without displaying sensitive values.
+    
+    Credentials are never printed, logged, or stored in shell history. The OAuth
+    token is written only to ~/.kube/config and cleared from memory immediately.
+
+    Parameters can be provided via command-line arguments, environment variables,
+    or interactive prompts.
 
 .PARAMETER SubscriptionId
-    Azure subscription ID containing the ARO cluster.
+    Azure subscription ID. Falls back to env var AZURE_SUBSCRIPTION_ID, then prompts.
 
 .PARAMETER ResourceGroup
-    Resource group name of the ARO cluster.
+    Resource group name. Falls back to env var ARO_RESOURCE_GROUP, then prompts.
 
 .PARAMETER ClusterName
-    Name of the ARO cluster.
+    ARO cluster name. Falls back to env var ARO_CLUSTER_NAME, then prompts.
 
 .EXAMPLE
-    .\scripts\aro-login.ps1 -SubscriptionId "c9c7cf8f-..." -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
+    # Interactive — prompts for all values
+    .\scripts\aro-login.ps1
+
+.EXAMPLE
+    # Fully parameterized
+    .\scripts\aro-login.ps1 -SubscriptionId "xxxxxxxx-..." -ResourceGroup "my-rg" -ClusterName "my-aro"
+
+.EXAMPLE
+    # Using environment variables
+    $env:AZURE_SUBSCRIPTION_ID = "xxxxxxxx-..."
+    $env:ARO_RESOURCE_GROUP = "my-rg"
+    $env:ARO_CLUSTER_NAME = "my-aro"
+    .\scripts\aro-login.ps1
 #>
 
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$SubscriptionId,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$ResourceGroup,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$ClusterName
 )
 
 $ErrorActionPreference = "Stop"
 
+# --- Resolve parameters from args, env vars, or interactive prompt ---
+
+if (-not $SubscriptionId) {
+    $SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
+}
+if (-not $SubscriptionId) {
+    $SubscriptionId = Read-Host "Enter Azure Subscription ID"
+}
+if (-not $SubscriptionId) {
+    Write-Error "Subscription ID is required. Pass -SubscriptionId, set AZURE_SUBSCRIPTION_ID, or enter interactively."
+    exit 1
+}
+
+if (-not $ResourceGroup) {
+    $ResourceGroup = $env:ARO_RESOURCE_GROUP
+}
+if (-not $ResourceGroup) {
+    $ResourceGroup = Read-Host "Enter ARO Resource Group name"
+}
+if (-not $ResourceGroup) {
+    Write-Error "Resource Group is required. Pass -ResourceGroup, set ARO_RESOURCE_GROUP, or enter interactively."
+    exit 1
+}
+
+if (-not $ClusterName) {
+    $ClusterName = $env:ARO_CLUSTER_NAME
+}
+if (-not $ClusterName) {
+    $ClusterName = Read-Host "Enter ARO Cluster name"
+}
+if (-not $ClusterName) {
+    Write-Error "Cluster Name is required. Pass -ClusterName, set ARO_CLUSTER_NAME, or enter interactively."
+    exit 1
+}
+
 Write-Host "Authenticating to ARO cluster '$ClusterName'..." -ForegroundColor Cyan
+
+# --- Pre-flight: verify Azure CLI is logged in ---
+$azAccount = az account show -o json 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "Azure CLI is not authenticated. Logging in..." -ForegroundColor Yellow
+    Write-Host "  Tip: On Windows, if login fails, run these once:" -ForegroundColor Gray
+    Write-Host "    az account clear" -ForegroundColor Gray
+    Write-Host "    az config set core.enable_broker_on_windows=false" -ForegroundColor Gray
+    Write-Host ""
+    az login | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Azure login failed. Please run 'az login' manually."
+        exit 1
+    }
+}
+
+# --- Pre-flight: verify kubectl is available ---
+if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
+    Write-Error "kubectl is not installed or not in PATH. Install it from https://kubernetes.io/docs/tasks/tools/"
+    exit 1
+}
 
 # Step 1: Get cluster API server URL (not sensitive)
 Write-Host "  [1/4] Retrieving cluster endpoint..." -ForegroundColor Gray

@@ -70,7 +70,41 @@ The repo includes `.vscode/mcp.json` which auto-registers the MCP server. If you
 }
 ```
 
-### 4. Use with Copilot
+### 4. Authenticate to your ARO cluster (secure)
+
+The included login script securely authenticates to any ARO cluster without exposing tokens or credentials in the terminal. It supports three input methods:
+
+**Interactive (prompts for values):**
+```powershell
+.\scripts\aro-login.ps1
+```
+
+**With parameters:**
+```powershell
+.\scripts\aro-login.ps1 `
+  -SubscriptionId "<YOUR_SUBSCRIPTION_ID>" `
+  -ResourceGroup "<YOUR_RESOURCE_GROUP>" `
+  -ClusterName "<YOUR_CLUSTER_NAME>"
+```
+
+**With environment variables:**
+```powershell
+$env:AZURE_SUBSCRIPTION_ID = "<YOUR_SUBSCRIPTION_ID>"
+$env:ARO_RESOURCE_GROUP = "<YOUR_RESOURCE_GROUP>"
+$env:ARO_CLUSTER_NAME = "<YOUR_CLUSTER_NAME>"
+.\scripts\aro-login.ps1
+```
+
+> **Security:** Credentials and tokens are never displayed, logged, or stored in shell history. The OAuth token is written only to `~/.kube/config` and cleared from memory immediately.
+
+After login, use `kubectl` normally:
+```bash
+kubectl get nodes
+kubectl get clusteroperators
+kubectl top nodes
+```
+
+### 5. Use with Copilot
 
 1. Open VS Code and switch Copilot Chat to **Agent mode**
 2. Click the **Tools icon** (wrench) to verify `aro_cluster_get` is listed
