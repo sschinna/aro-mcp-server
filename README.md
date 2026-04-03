@@ -24,9 +24,10 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login` authenticated)
 - [VS Code](https://code.visualstudio.com/) with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension
 - An Azure subscription with the `Microsoft.RedHatOpenShift` resource provider registered
-- This server depends on the [microsoft/mcp](https://github.com/microsoft/mcp) core libraries — clone that repo as `msft-aro-mcp` and reference it, or build as part of the full solution
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) or [oc CLI](https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/) for cluster operations
+- The pre-built `azmcp.exe` binary (see [Setup](#setup) below)
 
-## Quick Start
+## Setup
 
 ### 1. Clone the repo
 
@@ -35,9 +36,23 @@ git clone https://github.com/sschinna/aro-mcp-server.git
 cd aro-mcp-server
 ```
 
-### 2. Authenticate with Azure
+### 2. Install the Azure MCP Server binary
 
-On Windows, the Azure CLI defaults to WAM (Web Account Manager) broker authentication, which can cause `AADSTS` errors or token cache failures on first use. To avoid this, disable the broker before logging in:
+Download or build the `azmcp` binary and place it in `~/.aro-mcp/`:
+
+```powershell
+# Option A: Install from the official Azure MCP NuGet tool
+dotnet tool install --global Azure.Mcp
+
+# Option B: Use a pre-built binary
+# Copy azmcp.exe to ~/.aro-mcp/ (Windows) or ~/.aro-mcp/ (Linux/macOS)
+mkdir -p ~/.aro-mcp
+cp /path/to/azmcp.exe ~/.aro-mcp/
+```
+
+### 3. Authenticate with Azure
+
+On Windows, the Azure CLI may fail with AADSTS or token cache errors on first use. Run this **once** to fix:
 
 ```bash
 az account clear
@@ -46,23 +61,25 @@ az login
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
 ```
 
-> **Note:** You only need to run `az account clear` and `az config set` once. After that, `az login` will use browser-based authentication reliably.
+> **Note:** The `az account clear` and `az config set` steps are only needed once. After that, `az login` works reliably.
 
-### 3. Configure VS Code
+### 4. Configure VS Code MCP Server
 
-The repo includes `.vscode/mcp.json` which auto-registers the MCP server. If you want to add it to another workspace or globally, add this to your VS Code `settings.json`:
+The repo includes `.vscode/mcp.json` which auto-registers the server when you open the workspace. No manual setup needed.
+
+To add it to **another workspace** or **globally**, add this to your VS Code `settings.json`:
 
 ```json
 {
   "mcp": {
     "servers": {
-      "ARO-test-mcp": {
+      "aro-mcp-server": {
         "type": "stdio",
         "command": "dotnet",
         "args": [
           "run", "--project",
           "/path/to/aro-mcp-server/tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj",
-          "--", "server", "--transport", "stdio"
+          "--", "server", "start", "--transport", "stdio"
         ]
       }
     }
@@ -70,11 +87,11 @@ The repo includes `.vscode/mcp.json` which auto-registers the MCP server. If you
 }
 ```
 
-### 4. Authenticate to your ARO cluster (secure)
+### 5. Authenticate to your ARO cluster (secure — no tokens exposed)
 
-The included login script securely authenticates to any ARO cluster without exposing tokens or credentials in the terminal. It supports three input methods:
+The included login script handles the full authentication flow without ever displaying credentials, tokens, or secrets in the terminal or shell history.
 
-**Interactive (prompts for values):**
+**Interactive mode (prompts for all values):**
 ```powershell
 .\scripts\aro-login.ps1
 ```
@@ -95,16 +112,23 @@ $env:ARO_CLUSTER_NAME = "<YOUR_CLUSTER_NAME>"
 .\scripts\aro-login.ps1
 ```
 
-> **Security:** Credentials and tokens are never displayed, logged, or stored in shell history. The OAuth token is written only to `~/.kube/config` and cleared from memory immediately.
+What the script does:
+1. Verifies Azure CLI login (auto-triggers `az login` if expired)
+2. Retrieves cluster endpoint from Azure
+3. Fetches kubeadmin credentials (never displayed)
+4. Exchanges credentials for an OAuth token (never displayed)
+5. Configures `~/.kube/config` with the token
+6. Clears all sensitive data from memory
 
-After login, use `kubectl` normally:
+After login, use `kubectl` or `oc` without any token flags:
 ```bash
 kubectl get nodes
 kubectl get clusteroperators
 kubectl top nodes
+oc get pods -A
 ```
 
-### 5. Use with Copilot
+### 6. Use with Copilot
 
 1. Open VS Code and switch Copilot Chat to **Agent mode**
 2. Click the **Tools icon** (wrench) to verify `aro_cluster_get` is listed
@@ -112,9 +136,11 @@ kubectl top nodes
 
 ## Usage Examples
 
+### With Copilot (Agent Mode)
+
 **List all clusters in a subscription:**
 ```
-User: List my ARO clusters in subscription <YOUR_SUBSCRIPTION_ID>
+User: List my ARO clusters
 ```
 
 **Get specific cluster details:**
@@ -125,6 +151,38 @@ User: Get details of my-aro-cluster in resource group my-aro-rg
 **Check cluster health:**
 ```
 User: What is the provisioning state and worker count of my ARO cluster?
+```
+
+**Node and operator diagnostics (via kubectl/oc):**
+```
+User: Check the ARO cluster node health and CPU utilization
+User: Share the cluster operators status
+User: Check DNS health on my ARO cluster
+```
+
+### With kubectl / oc CLI
+
+After running `.\scripts\aro-login.ps1`:
+
+```bash
+# Node status
+kubectl get nodes -o wide
+
+# CPU and memory utilization
+kubectl top nodes
+
+# Cluster operators
+oc get clusteroperators
+
+# DNS health
+oc get dns.operator/default -o yaml
+oc get pods -n openshift-dns
+
+# Pod status across all namespaces
+oc get pods -A --field-selector status.phase!=Running
+
+# Cluster version
+oc get clusterversion
 ```
 
 The tool returns cluster metadata including:
@@ -142,7 +200,7 @@ The tool returns cluster metadata including:
 
 ### `az login` fails with AADSTS errors or token cache issues
 
-If you see errors like `Can't find token from MSAL cache`, `AADSTS50076`, or `AADSTS5000224` when running Azure CLI commands:
+If you see errors like `Can't find token from MSAL cache`, `AADSTS50076`, or `AADSTS5000224`:
 
 ```bash
 az account clear
@@ -150,13 +208,36 @@ az config set core.enable_broker_on_windows=false
 az login
 ```
 
-This disables the Windows WAM broker and switches to browser-based authentication, which is more reliable for MCP server usage.
+This disables the Windows WAM broker and switches to browser-based authentication.
 
-### MCP server fails to start
+### MCP server fails to start in VS Code
 
-1. Verify the `azmcp.exe` path in `.vscode/mcp.json` is correct
-2. Ensure you are authenticated (`az account show`)
-3. Check that the `Microsoft.RedHatOpenShift` resource provider is registered in your subscription
+1. Open the Command Palette (`Ctrl+Shift+P`) → **MCP: List Servers** → find `aro-mcp-server` → **Restart**
+2. Ensure you are authenticated: `az account show`
+3. Verify the `Microsoft.RedHatOpenShift` resource provider is registered:
+   ```bash
+   az provider show --namespace Microsoft.RedHatOpenShift --query "registrationState" -o tsv
+   ```
+4. Check the Output panel in VS Code (select "MCP" from the dropdown) for error details
+
+### `kubectl` / `oc` commands fail with authentication errors
+
+Your cluster token may have expired (tokens last 24 hours). Re-run the login script:
+```powershell
+.\scripts\aro-login.ps1
+```
+
+### Installing the `oc` CLI
+
+Download from the [OpenShift mirror](https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/):
+
+```powershell
+# Windows (PowerShell)
+curl.exe -sLo "$env:TEMP\oc.zip" "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/openshift-client-windows.zip"
+Expand-Archive "$env:TEMP\oc.zip" "$env:TEMP\oc-install" -Force
+Copy-Item "$env:TEMP\oc-install\oc.exe" "$env:USERPROFILE\.aro-mcp\oc.exe"
+# Add ~/.aro-mcp to your PATH
+```
 
 ## Tool Parameters
 
@@ -287,13 +368,18 @@ az group delete --name $RESOURCEGROUP --yes --no-wait
 ```
 aro-mcp-server/
 ├── .vscode/
-│   └── mcp.json                          # VS Code MCP server config
+│   └── mcp.json                          # VS Code MCP server auto-config
+├── scripts/
+│   └── aro-login.ps1                     # Secure ARO cluster authentication
 ├── aro-deploy/
 │   └── azuredeploy.bicep                 # ARO cluster Bicep template (managed identity)
+├── Directory.Build.props                 # Shared build settings (net10.0)
+├── Directory.Packages.props              # Centralized NuGet package versions
+├── aro-mcp-server.sln                    # Solution file
 └── tools/
     └── Azure.Mcp.Tools.Aro/
         ├── src/
-        │   ├── AroSetup.cs               # Tool area registration
+        │   ├── AroSetup.cs               # Tool area registration (IAreaSetup)
         │   ├── Commands/
         │   │   ├── AroJsonContext.cs      # AOT-compatible JSON serialization
         │   │   ├── BaseAroCommand.cs      # Base command class
@@ -312,7 +398,7 @@ aro-mcp-server/
         └── tests/
             └── Azure.Mcp.Tools.Aro.UnitTests/
                 └── Cluster/
-                    └── ClusterGetCommandTests.cs  # 4 unit tests
+                    └── ClusterGetCommandTests.cs
 ```
 
 ## Sharing with Your Team
@@ -325,11 +411,17 @@ aro-mcp-server/
 
 ### Build from Source
 
+The project references core MCP libraries via DLL from the `azmcp` install directory (`~/.aro-mcp/`). To build:
+
 ```bash
-git clone https://github.com/microsoft/mcp.git msft-aro-mcp
-cd msft-aro-mcp
-# Copy ARO tools into the repo (or clone aro-mcp-server alongside)
+git clone https://github.com/sschinna/aro-mcp-server.git
+cd aro-mcp-server
 dotnet build
+```
+
+To build with a custom `azmcp` location:
+```bash
+dotnet build /p:AzmcpDir=/path/to/azmcp/directory
 ```
 
 ## License
