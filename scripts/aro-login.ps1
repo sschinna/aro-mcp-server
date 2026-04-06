@@ -5,14 +5,15 @@
 .DESCRIPTION
     Supports two authentication modes:
 
-    1. Azure mode (default): Uses Azure CLI to retrieve kubeadmin credentials,
-       obtain an OAuth token, and configure kubeconfig automatically.
+    1. Azure mode (default): Uses Azure CLI to retrieve the cluster API endpoint,
+       then prompts the user for credentials (username and password) securely.
+       Credentials are never fetched programmatically for compliance.
 
     2. Direct API mode (-Direct): Connects directly to the ARO API server using
        oc login. No Azure subscription or Azure CLI required. Prompts for
        API server URL, username, and password securely.
 
-    Credentials are never printed, logged, or stored in shell history.
+    Credentials are never printed, logged, auto-fetched, or stored in shell history.
 
 .PARAMETER Direct
     Switch to enable direct API server login mode (no Azure subscription needed).
@@ -248,16 +249,18 @@ $apiServer = $clusterInfo.apiServer.TrimEnd('/')
 $domain = $clusterInfo.domain
 Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
 
-# Step 2: Get credentials (captured securely, never displayed)
-Write-Host "  [2/4] Retrieving credentials (hidden)..." -ForegroundColor Gray
-$creds = az aro list-credentials `
-    --name $ClusterName `
-    --resource-group $ResourceGroup `
-    --subscription $SubscriptionId `
-    -o json 2>&1 | ConvertFrom-Json
+# Step 2: Prompt for credentials securely (never fetched automatically)
+Write-Host "  [2/4] Enter cluster credentials..." -ForegroundColor Gray
+Write-Host "  (Credentials are never stored, logged, or displayed)" -ForegroundColor DarkGray
+$kubeUser = Read-Host "  Enter username (default: kubeadmin)"
+if (-not $kubeUser) { $kubeUser = "kubeadmin" }
+$securePass = Read-Host "  Enter password" -AsSecureString
+$bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePass)
+$kubePass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
-if (-not $creds.kubeadminPassword) {
-    Write-Error "Failed to retrieve cluster credentials."
+if (-not $kubePass) {
+    Write-Error "Password is required."
     exit 1
 }
 
@@ -270,8 +273,12 @@ $oauthHost = $oauthHost -replace ":\d+$", ""
 $oauthUrl = "$oauthHost/oauth/authorize?client_id=openshift-challenging-client&response_type=token"
 
 $encodedCreds = [Convert]::ToBase64String(
-    [System.Text.Encoding]::UTF8.GetBytes("$($creds.kubeadminUsername):$($creds.kubeadminPassword)")
+    [System.Text.Encoding]::UTF8.GetBytes("${kubeUser}:${kubePass}")
 )
+
+# Clear plaintext password immediately after encoding
+$kubePass = $null
+$securePass = $null
 
 $response = curl.exe -sk -I `
     -H "Authorization: Basic $encodedCreds" `
@@ -289,7 +296,6 @@ $token = $Matches[1]
 
 # Clear sensitive variables from memory
 $encodedCreds = $null
-$creds = $null
 
 # Step 4: Configure kubeconfig securely
 Write-Host "  [4/4] Configuring kubeconfig..." -ForegroundColor Gray
