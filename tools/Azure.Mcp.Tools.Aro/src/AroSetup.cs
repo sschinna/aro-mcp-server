@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Azure.Mcp.Tools.Aro.Commands.Cluster;
+using Azure.Mcp.Tools.Aro.Commands.Documentation;
 using Azure.Mcp.Tools.Aro.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Mcp.Core.Areas;
@@ -19,6 +20,7 @@ public class AroSetup : IAreaSetup
         services.AddSingleton<IAroService, AroService>();
 
         services.AddSingleton<ClusterGetCommand>();
+        services.AddSingleton<DocumentationListCommand>();
     }
 
     public CommandGroup RegisterCommands(IServiceProvider serviceProvider)
@@ -28,8 +30,14 @@ public class AroSetup : IAreaSetup
         var cluster = new CommandGroup("cluster", "ARO cluster operations - Commands for listing, managing, and diagnosing Azure Red Hat OpenShift clusters in your Azure subscription.");
         aro.AddSubGroup(cluster);
 
+        var documentation = new CommandGroup("documentation", "Public documentation operations - Commands for Azure Red Hat OpenShift and Red Hat public guidance references.");
+        aro.AddSubGroup(documentation);
+
         var clusterGet = serviceProvider.GetRequiredService<ClusterGetCommand>();
         cluster.AddCommand(clusterGet.Name, clusterGet);
+
+        var documentationList = serviceProvider.GetRequiredService<DocumentationListCommand>();
+        documentation.AddCommand(documentationList.Name, documentationList);
 
         return aro;
     }

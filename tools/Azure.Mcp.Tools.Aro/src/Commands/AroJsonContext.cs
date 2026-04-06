@@ -3,11 +3,14 @@
 
 using System.Text.Json.Serialization;
 using Azure.Mcp.Tools.Aro.Commands.Cluster;
+using Azure.Mcp.Tools.Aro.Commands.Documentation;
 using Azure.Mcp.Tools.Aro.Services;
 
 namespace Azure.Mcp.Tools.Aro.Commands;
 
 [JsonSerializable(typeof(ClusterGetCommand.ClusterGetCommandResult))]
+[JsonSerializable(typeof(DocumentationListCommand.DocumentationListCommandResult))]
+[JsonSerializable(typeof(Models.PublicDocument))]
 [JsonSerializable(typeof(Models.Cluster))]
 [JsonSerializable(typeof(Models.ClusterProfile))]
 [JsonSerializable(typeof(Models.ConsoleProfile))]

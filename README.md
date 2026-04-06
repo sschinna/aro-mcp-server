@@ -17,6 +17,7 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 | Tool | Description |
 |---|---|
 | `aro_cluster_get` | List all ARO clusters in a subscription, or get details of a specific cluster (profiles, networking, API server, worker nodes, provisioning state) |
+| `aro_documentation_list` | List curated public Azure Learn and Red Hat documentation links for ARO/OpenShift with optional provider (`azure`,`redhat`,`all`) and topic filters |
 
 ## Prerequisites
 
@@ -75,11 +76,11 @@ To add it to **another workspace** or **globally**, add this to your VS Code `se
     "servers": {
       "aro-mcp-server": {
         "type": "stdio",
-        "command": "dotnet",
+        "command": "azmcp",
         "args": [
-          "run", "--project",
-          "/path/to/aro-mcp-server/tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj",
-          "--", "server", "start", "--transport", "stdio"
+          "server", "start",
+          "--tool", "aro_cluster_get",
+          "--tool", "aro_documentation_list"
         ]
       }
     }
@@ -186,6 +187,12 @@ User: Get details of my-aro-cluster in resource group my-aro-rg
 **Check cluster health:**
 ```
 User: What is the provisioning state and worker count of my ARO cluster?
+```
+
+**Find public docs:**
+```
+User: Show Azure and Red Hat docs for ARO networking
+User: List Red Hat OpenShift troubleshooting docs
 ```
 
 **Node and operator diagnostics (via kubectl/oc):**
