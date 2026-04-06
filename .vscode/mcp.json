@@ -2,16 +2,12 @@
   "servers": {
     "aro-mcp-server": {
       "type": "stdio",
-      "command": "dotnet",
+      "command": "azmcp",
       "args": [
-        "run",
-        "--project",
-        "${workspaceFolder}/tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj",
-        "--",
         "server",
         "start",
-        "--transport",
-        "stdio"
+        "--tool",
+        "aro_cluster_get"
       ]
     }
   }
