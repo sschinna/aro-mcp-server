@@ -225,14 +225,22 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-# --- Pre-flight: verify kubectl is available ---
-if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
-    Write-Error "kubectl is not installed or not in PATH. Install it from https://kubernetes.io/docs/tasks/tools/"
-    exit 1
+# --- Pre-flight: verify oc CLI is available ---
+$ocCmd = Get-Command oc -ErrorAction SilentlyContinue
+if (-not $ocCmd) {
+    $ocPath = Join-Path $env:USERPROFILE ".aro-mcp\oc.exe"
+    if (Test-Path $ocPath) {
+        $ocCmd = $ocPath
+    } else {
+        Write-Error "oc CLI is not installed or not in PATH. Install from https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/"
+        exit 1
+    }
+} else {
+    $ocCmd = $ocCmd.Source
 }
 
 # Step 1: Get cluster API server URL (not sensitive)
-Write-Host "  [1/4] Retrieving cluster endpoint..." -ForegroundColor Gray
+Write-Host "  [1/3] Retrieving cluster endpoint..." -ForegroundColor Gray
 $clusterInfo = az aro show `
     --name $ClusterName `
     --resource-group $ResourceGroup `
@@ -246,74 +254,28 @@ if (-not $clusterInfo.apiServer) {
 }
 
 $apiServer = $clusterInfo.apiServer.TrimEnd('/')
-$domain = $clusterInfo.domain
 Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
 
-# Step 2: Prompt for credentials securely (never fetched automatically)
-Write-Host "  [2/4] Enter cluster credentials..." -ForegroundColor Gray
+# Step 2: Prompt for credentials (password is entered via oc login interactively)
+Write-Host "  [2/3] Enter cluster credentials..." -ForegroundColor Gray
 Write-Host "  (Credentials are never stored, logged, or displayed)" -ForegroundColor DarkGray
 $kubeUser = Read-Host "  Enter username (default: kubeadmin)"
 if (-not $kubeUser) { $kubeUser = "kubeadmin" }
-$securePass = Read-Host "  Enter password" -AsSecureString
-$bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePass)
-$kubePass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
-if (-not $kubePass) {
-    Write-Error "Password is required."
+# Step 3: Login using oc — prompts for password securely
+Write-Host "  [3/3] Logging in via oc login (enter password when prompted)..." -ForegroundColor Gray
+& $ocCmd login $apiServer -u $kubeUser --insecure-skip-tls-verify
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "oc login failed. Check credentials and cluster connectivity."
     exit 1
 }
-
-# Step 3: Exchange credentials for OAuth token (never displayed)
-Write-Host "  [3/4] Obtaining OAuth token (hidden)..." -ForegroundColor Gray
-
-# Derive the OAuth URL from the API server
-$oauthHost = $apiServer -replace "https://api\.", "https://oauth-openshift.apps."
-$oauthHost = $oauthHost -replace ":\d+$", ""
-$oauthUrl = "$oauthHost/oauth/authorize?client_id=openshift-challenging-client&response_type=token"
-
-$encodedCreds = [Convert]::ToBase64String(
-    [System.Text.Encoding]::UTF8.GetBytes("${kubeUser}:${kubePass}")
-)
-
-# Clear plaintext password immediately after encoding
-$kubePass = $null
-$securePass = $null
-
-$response = curl.exe -sk -I `
-    -H "Authorization: Basic $encodedCreds" `
-    -H "X-CSRF-Token: 1" `
-    "$oauthUrl" 2>&1
-
-$locationLine = $response | Select-String "Location:" | ForEach-Object { $_.Line }
-
-if (-not $locationLine -or $locationLine -notmatch "access_token=([^&]+)") {
-    Write-Error "Failed to obtain OAuth token. Check cluster connectivity and credentials."
-    exit 1
-}
-
-$token = $Matches[1]
-
-# Clear sensitive variables from memory
-$encodedCreds = $null
-
-# Step 4: Configure kubeconfig securely
-Write-Host "  [4/4] Configuring kubeconfig..." -ForegroundColor Gray
-
-$contextName = "aro-$ClusterName"
-
-kubectl config set-cluster $ClusterName --server=$apiServer --insecure-skip-tls-verify=true 2>&1 | Out-Null
-kubectl config set-credentials "${ClusterName}-admin" --token=$token 2>&1 | Out-Null
-kubectl config set-context $contextName --cluster=$ClusterName --user="${ClusterName}-admin" 2>&1 | Out-Null
-kubectl config use-context $contextName 2>&1 | Out-Null
-
-# Clear token from memory
-$token = $null
-[System.GC]::Collect()
 
 Write-Host ""
 Write-Host "Successfully authenticated to '$ClusterName'." -ForegroundColor Green
-Write-Host "Context '$contextName' is now active. Run kubectl commands without any token flags:" -ForegroundColor Green
+Write-Host "Run oc or kubectl commands directly:" -ForegroundColor Green
+Write-Host "  oc get nodes" -ForegroundColor Yellow
+Write-Host "  oc get clusteroperators" -ForegroundColor Yellow
+Write-Host "  oc get pods -A" -ForegroundColor Yellow
 Write-Host "  kubectl get nodes" -ForegroundColor Yellow
-Write-Host "  kubectl get clusteroperators" -ForegroundColor Yellow
 Write-Host "  kubectl top nodes" -ForegroundColor Yellow
