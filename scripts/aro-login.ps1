@@ -14,6 +14,8 @@
        API server URL, username, and password securely.
 
     Credentials are never printed, logged, auto-fetched, or stored in shell history.
+    For privacy, prefer running this script without inline subscription/resource arguments,
+    and enter values interactively in the terminal.
 
 .PARAMETER Direct
     Switch to enable direct API server login mode (no Azure subscription needed).
@@ -52,10 +54,6 @@
     .\scripts\aro-login.ps1
 
 .EXAMPLE
-    # Azure mode — fully parameterized
-    .\scripts\aro-login.ps1 -SubscriptionId "xxxxxxxx-..." -ResourceGroup "my-rg" -ClusterName "my-aro"
-
-.EXAMPLE
     # Azure mode — using environment variables
     $env:AZURE_SUBSCRIPTION_ID = "xxxxxxxx-..."
     $env:ARO_RESOURCE_GROUP = "my-rg"
@@ -84,6 +82,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Read-HiddenText {
+    param([string]$Prompt)
+
+    $secure = Read-Host $Prompt -AsSecureString
+    if (-not $secure) {
+        return ""
+    }
+
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    }
+    finally {
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
 
 # ============================================================================
 # Direct API Server Login Mode (no Azure subscription needed)
@@ -178,7 +193,7 @@ if (-not $SubscriptionId) {
     $SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
 }
 if (-not $SubscriptionId) {
-    $SubscriptionId = Read-Host "Enter Azure Subscription ID"
+    $SubscriptionId = Read-HiddenText "Enter Azure Subscription ID (hidden input)"
 }
 if (-not $SubscriptionId) {
     Write-Error "Subscription ID is required. Pass -SubscriptionId, set AZURE_SUBSCRIPTION_ID, or enter interactively."
