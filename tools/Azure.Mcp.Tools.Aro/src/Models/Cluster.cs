@@ -17,6 +17,7 @@ public class Cluster
     public NetworkProfile? NetworkProfile { get; set; }
     public MasterProfile? MasterProfile { get; set; }
     public IList<WorkerProfile>? WorkerProfiles { get; set; }
+    public IList<WorkerProfile>? WorkerProfilesStatus { get; set; }
     public IList<IngressProfile>? IngressProfiles { get; set; }
     public ServicePrincipalProfile? ServicePrincipalProfile { get; set; }
     public IDictionary<string, string>? Tags { get; set; }
@@ -28,6 +29,7 @@ public sealed class ClusterProfile
     public string? Version { get; set; }
     public string? ResourceGroupId { get; set; }
     public string? FipsValidatedModules { get; set; }
+    public string? OidcIssuer { get; set; }
 }
 
 public sealed class ConsoleProfile
@@ -48,6 +50,7 @@ public sealed class NetworkProfile
     public string? ServiceCidr { get; set; }
     public string? OutboundType { get; set; }
     public string? PreconfiguredNsg { get; set; }
+    public LoadBalancerProfile? LoadBalancerProfile { get; set; }
 }
 
 public sealed class MasterProfile
@@ -78,4 +81,20 @@ public sealed class IngressProfile
 public sealed class ServicePrincipalProfile
 {
     public string? ClientId { get; set; }
+}
+
+public sealed class LoadBalancerProfile
+{
+    public ManagedOutboundIps? ManagedOutboundIps { get; set; }
+    public IList<EffectiveOutboundIp>? EffectiveOutboundIps { get; set; }
+}
+
+public sealed class ManagedOutboundIps
+{
+    public int? Count { get; set; }
+}
+
+public sealed class EffectiveOutboundIp
+{
+    public string? Id { get; set; }
 }

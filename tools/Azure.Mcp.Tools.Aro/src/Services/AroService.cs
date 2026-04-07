@@ -158,6 +158,7 @@ public sealed class AroService(
                 cluster.NetworkProfile = properties.NetworkProfile;
                 cluster.MasterProfile = properties.MasterProfile;
                 cluster.WorkerProfiles = properties.WorkerProfiles;
+                cluster.WorkerProfilesStatus = properties.WorkerProfilesStatus;
                 cluster.IngressProfiles = properties.IngressProfiles;
 
                 if (properties.ServicePrincipalProfile != null)
@@ -186,6 +187,7 @@ internal sealed class AroClusterProperties
     public NetworkProfile? NetworkProfile { get; set; }
     public MasterProfile? MasterProfile { get; set; }
     public IList<WorkerProfile>? WorkerProfiles { get; set; }
+    public IList<WorkerProfile>? WorkerProfilesStatus { get; set; }
     public IList<IngressProfile>? IngressProfiles { get; set; }
     public AroServicePrincipalProperties? ServicePrincipalProfile { get; set; }
 }
