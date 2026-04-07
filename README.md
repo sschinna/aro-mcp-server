@@ -552,6 +552,43 @@ oc get clusterrolebindings
 oc describe clusterrolebinding <binding-name>
 ```
 
+### PowerShell Examples
+
+```powershell
+# Cluster management
+oc get clusteroperators
+oc get nodes -o wide
+oc adm top nodes
+oc get clusterversion
+oc describe clusterversion
+oc cluster-info
+oc get roles -A | Select-String "cluster"
+
+# Pod and workload diagnostics
+oc get pods -A
+oc describe pod <pod-name> -n <namespace>
+oc logs <pod-name> -n <namespace>
+oc logs <pod-name> -n <namespace> --tail=50 -f
+oc get events -A | Sort-Object
+
+# Network and storage
+oc get ingresscontroller -A
+oc get storageclasses
+oc get persistentvolumeclaims -A
+oc get networkpolicies -A
+
+# User and RBAC
+oc whoami
+oc get clusterroles
+oc get roles -A
+oc get clusterrolebindings
+oc describe clusterrolebinding <binding-name>
+
+# Common filtering examples
+oc get nodes -o name | Where-Object { $_ -match 'worker' } | Select-Object -First 1
+oc describe node <node-name> | Out-String -Stream | Select-String -Pattern "Conditions:" -Context 0,8
+```
+
 ---
 
 ## License
