@@ -2,6 +2,17 @@
 
 A Model Context Protocol (MCP) server for Azure Red Hat OpenShift (ARO) cluster management. This server enables AI assistants like GitHub Copilot to query, manage, and troubleshoot ARO clusters directly from VS Code.
 
+---
+
+## 📌 Repository Info
+
+**This repository is the team-friendly version** with setup guides, usage documentation, and quick references.
+
+**For technical deep dives** (architecture, source code analysis, implementation details), see the companion repository:
+- 🔗 [aro-mcp-server-demo](https://github.com/sschinna/aro-mcp-server-demo) — Complete source code, architectural docs, diagrams, and technical reference
+
+---
+
 ## What is this?
 
 This MCP server exposes ARO cluster operations as tools that AI agents can invoke. When connected to VS Code Copilot (Agent mode), you can ask natural language questions like:
@@ -475,6 +486,13 @@ To build with a custom `azmcp` location:
 ```bash
 dotnet build /p:AzmcpDir=/path/to/azmcp/directory
 ```
+
+## Additional Resources
+
+- **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Cheat sheet with common commands, Copilot prompts, and troubleshooting tips
+- **[aro-mcp-server-demo](https://github.com/sschinna/aro-mcp-server-demo)** — Full source code, architecture documentation, implementation details
+
+---
 
 ## License
 
