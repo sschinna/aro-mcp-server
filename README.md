@@ -2,17 +2,6 @@
 
 A Model Context Protocol (MCP) server for Azure Red Hat OpenShift (ARO) cluster management. This server enables AI assistants like GitHub Copilot to query, manage, and troubleshoot ARO clusters directly from VS Code.
 
----
-
-## 📌 Repository Info
-
-**This repository is the team-friendly version** with setup guides, usage documentation, and quick references.
-
-**For technical deep dives** (architecture, source code analysis, implementation details), see the companion repository:
-- 🔗 [aro-mcp-server-demo](https://github.com/sschinna/aro-mcp-server-demo) — Complete source code, architectural docs, diagrams, and technical reference
-
----
-
 ## What is this?
 
 This MCP server exposes ARO cluster operations as tools that AI agents can invoke. When connected to VS Code Copilot (Agent mode), you can ask natural language questions like:
@@ -487,10 +476,72 @@ To build with a custom `azmcp` location:
 dotnet build /p:AzmcpDir=/path/to/azmcp/directory
 ```
 
-## Additional Resources
+## Common ARO Commands
 
-- **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Cheat sheet with common commands, Copilot prompts, and troubleshooting tips
-- **[aro-mcp-server-demo](https://github.com/sschinna/aro-mcp-server-demo)** — Full source code, architecture documentation, implementation details
+### Cluster Management
+
+```bash
+# List cluster operators
+oc get clusteroperators
+
+# Check node status
+oc get nodes -o wide
+oc top nodes
+
+# View cluster version
+oc get clusterversion
+oc describe clusterversion
+
+# Get cluster info
+oc cluster-info
+oc get roles -A | grep cluster
+```
+
+### Pod & Workload Diagnostics
+
+```bash
+# List all pods across namespace
+oc get pods -A
+
+# Describe failing pod
+oc describe pod <pod-name> -n <namespace>
+
+# View pod logs
+oc logs <pod-name> -n <namespace>
+oc logs <pod-name> -n <namespace> --tail=50 -f  # Last 50 lines, follow
+
+# Check events
+oc get events -A --sort-by='.lastTimestamp'
+```
+
+### Network & Storage
+
+```bash
+# List ingress controllers
+oc get ingresscontroller -A
+
+# Check storage classes
+oc get storageclasses
+oc get persistentvolumeclaims -A
+
+# View network policies
+oc get networkpolicies -A
+```
+
+### User & RBAC
+
+```bash
+# Current user
+oc whoami
+
+# List roles
+oc get clusterroles
+oc get roles -A
+
+# Check role bindings
+oc get clusterrolebindings
+oc describe clusterrolebinding <binding-name>
+```
 
 ---
 
