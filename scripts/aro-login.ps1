@@ -21,7 +21,8 @@
     Switch to enable direct API server login mode (no Azure subscription needed).
 
 .PARAMETER ApiServer
-    API server URL for direct login. Falls back to env var ARO_API_SERVER, then prompts.
+    API server URL for login. If provided (or entered at prompt), Azure mode skips
+    subscription/resource lookup and logs in directly to this endpoint.
 
 .PARAMETER Username
     Username for direct login. Falls back to env var ARO_USERNAME, then prompts.
@@ -59,6 +60,10 @@
 .EXAMPLE
     # Azure mode — force interactive prompts even if args/env are present
     .\scripts\aro-login.ps1 -PromptOnly
+
+.EXAMPLE
+    # Azure mode — prompt for API server first, then login (no subscription prompt needed)
+    .\scripts\aro-login.ps1 -PromptOnly -ApiServer "https://api.mycluster.eastus.aroapp.io:6443"
 
 .EXAMPLE
     # Azure mode — using environment variables
@@ -199,54 +204,145 @@ if ($Direct) {
 
 # --- Resolve parameters from args/env or interactive prompt (PromptOnly forces prompt path) ---
 
-if (-not $PromptOnly -and -not $SubscriptionId) {
-    $SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
-}
-if (-not $SubscriptionId) {
-    $SubscriptionId = Read-HiddenText "Enter Azure Subscription ID (hidden input)"
-}
-if (-not $SubscriptionId) {
-    Write-Error "Subscription ID is required. Pass -SubscriptionId, set AZURE_SUBSCRIPTION_ID, or enter interactively."
-    exit 1
+if (-not $PromptOnly -and -not $ApiServer) {
+    $ApiServer = $env:ARO_API_SERVER
 }
 
-if (-not $PromptOnly -and -not $ResourceGroup) {
-    $ResourceGroup = $env:ARO_RESOURCE_GROUP
+$apiServer = $null
+$useSubscriptionLookup = $false
+
+if ($ApiServer) {
+    $apiServer = $ApiServer.TrimEnd('/')
+    Write-Host "Using provided API server endpoint: $apiServer" -ForegroundColor Gray
 }
-if (-not $ResourceGroup) {
-    $ResourceGroup = Read-Host "Enter ARO Resource Group name"
+elseif ($SubscriptionId -or $ResourceGroup -or $ClusterName) {
+    $useSubscriptionLookup = $true
 }
-if (-not $ResourceGroup) {
-    Write-Error "Resource Group is required. Pass -ResourceGroup, set ARO_RESOURCE_GROUP, or enter interactively."
-    exit 1
+else {
+    $loginChoice = Read-Host "Choose login source: [A]PI server or [S]ubscription lookup (default: A)"
+    if ($loginChoice -match '^(?i)s') {
+        $useSubscriptionLookup = $true
+    }
+    else {
+        $enteredApiServer = Read-Host "Enter ARO API Server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)"
+        if ($enteredApiServer) {
+            $apiServer = $enteredApiServer.TrimEnd('/')
+            Write-Host "Using provided API server endpoint: $apiServer" -ForegroundColor Gray
+        }
+        else {
+            $useSubscriptionLookup = $true
+        }
+    }
 }
 
-if (-not $PromptOnly -and -not $ClusterName) {
-    $ClusterName = $env:ARO_CLUSTER_NAME
-}
-if (-not $ClusterName) {
-    $ClusterName = Read-Host "Enter ARO Cluster name"
-}
-if (-not $ClusterName) {
-    Write-Error "Cluster Name is required. Pass -ClusterName, set ARO_CLUSTER_NAME, or enter interactively."
-    exit 1
-}
-
-Write-Host "Authenticating to ARO cluster '$ClusterName' via Azure CLI..." -ForegroundColor Cyan
-
-# --- Pre-flight: verify Azure CLI is logged in ---
-$azAccount = az account show -o json 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Write-Host "Azure CLI is not authenticated. Logging in..." -ForegroundColor Yellow
-    Write-Host "  Tip: On Windows, if login fails, run these once:" -ForegroundColor Gray
-    Write-Host "    az account clear" -ForegroundColor Gray
-    Write-Host "    az config set core.enable_broker_on_windows=false" -ForegroundColor Gray
-    Write-Host ""
-    az login | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Azure login failed. Please run 'az login' manually."
+if ($useSubscriptionLookup) {
+    if (-not $PromptOnly -and -not $SubscriptionId) {
+        $SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
+    }
+    if (-not $SubscriptionId) {
+        $SubscriptionId = Read-HiddenText "Enter Azure Subscription ID (hidden input)"
+    }
+    if (-not $SubscriptionId) {
+        Write-Error "Subscription ID is required unless an API server URL is provided. Pass -SubscriptionId, set AZURE_SUBSCRIPTION_ID, or enter interactively."
         exit 1
+    }
+}
+
+if ($apiServer) {
+    Write-Host "Authenticating to ARO cluster via provided API server..." -ForegroundColor Cyan
+}
+else {
+    Write-Host "Authenticating to ARO cluster '$ClusterName' via Azure CLI..." -ForegroundColor Cyan
+}
+
+# --- Pre-flight: verify Azure CLI is logged in (subscription lookup path only) ---
+if ($useSubscriptionLookup) {
+    $azAccount = az account show -o json 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Azure CLI is not authenticated. Logging in..." -ForegroundColor Yellow
+        Write-Host "  Tip: On Windows, if login fails, run these once:" -ForegroundColor Gray
+        Write-Host "    az account clear" -ForegroundColor Gray
+        Write-Host "    az config set core.enable_broker_on_windows=false" -ForegroundColor Gray
+        Write-Host ""
+        az login | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Azure login failed. Please run 'az login' manually."
+            exit 1
+        }
+    }
+}
+
+$selectedCluster = $null
+
+if ($useSubscriptionLookup) {
+    Write-Host "  Discovering accessible ARO clusters in the subscription..." -ForegroundColor Gray
+    $clustersJson = az aro list `
+        --subscription $SubscriptionId `
+        --query "[].{name:name, resourceGroup:resourceGroup, provisioningState:provisioningState, apiServer:apiserverProfile.url}" `
+        -o json 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to list ARO clusters for the provided subscription. Verify access and subscription ID."
+        exit 1
+    }
+
+    $clusters = $clustersJson | ConvertFrom-Json
+    if ($null -eq $clusters) {
+        $clusters = @()
+    }
+    elseif ($clusters -isnot [System.Array]) {
+        $clusters = @($clusters)
+    }
+
+    if ($clusters.Count -eq 0) {
+        Write-Error "No accessible ARO clusters were found in the provided subscription."
+        exit 1
+    }
+
+    if (-not $PromptOnly -and -not $ResourceGroup) {
+        $ResourceGroup = $env:ARO_RESOURCE_GROUP
+    }
+    if (-not $PromptOnly -and -not $ClusterName) {
+        $ClusterName = $env:ARO_CLUSTER_NAME
+    }
+
+    if ($ClusterName -and $ResourceGroup) {
+        $selectedCluster = $clusters | Where-Object { $_.name -eq $ClusterName -and $_.resourceGroup -eq $ResourceGroup } | Select-Object -First 1
+        if (-not $selectedCluster) {
+            Write-Error "Cluster '$ClusterName' in resource group '$ResourceGroup' was not found among accessible clusters in this subscription."
+            exit 1
+        }
+    }
+    else {
+        Write-Host "  Accessible ARO clusters:" -ForegroundColor Gray
+        for ($i = 0; $i -lt $clusters.Count; $i++) {
+            $c = $clusters[$i]
+            Write-Host ("    [{0}] {1}  (rg: {2}, state: {3})" -f ($i + 1), $c.name, $c.resourceGroup, $c.provisioningState) -ForegroundColor Gray
+        }
+
+        $selection = Read-Host "Select cluster number to log in"
+        if (-not $selection -or -not ($selection -match '^\d+$')) {
+            Write-Error "A valid cluster number is required."
+            exit 1
+        }
+
+        $selectedIndex = [int]$selection
+        if ($selectedIndex -lt 1 -or $selectedIndex -gt $clusters.Count) {
+            Write-Error "Selected cluster number is out of range."
+            exit 1
+        }
+
+        $selectedCluster = $clusters[$selectedIndex - 1]
+    }
+
+    $ClusterName = $selectedCluster.name
+    $ResourceGroup = $selectedCluster.resourceGroup
+
+    $confirm = Read-Host "Confirm login to cluster '$ClusterName' in resource group '$ResourceGroup'? [Y/n]"
+    if ($confirm -and $confirm -match '^(?i)n') {
+        Write-Host "Login cancelled by user." -ForegroundColor Yellow
+        exit 0
     }
 }
 
@@ -264,22 +360,34 @@ if (-not $ocCmd) {
     $ocCmd = $ocCmd.Source
 }
 
-# Step 1: Get cluster API server URL (not sensitive)
-Write-Host "  [1/3] Retrieving cluster endpoint..." -ForegroundColor Gray
-$clusterInfo = az aro show `
-    --name $ClusterName `
-    --resource-group $ResourceGroup `
-    --subscription $SubscriptionId `
-    --query "{apiServer:apiserverProfile.url, domain:clusterProfile.domain}" `
-    -o json 2>&1 | ConvertFrom-Json
+if ($useSubscriptionLookup) {
+    # Step 1: Get cluster API server URL (not sensitive)
+    Write-Host "  [1/3] Retrieving cluster endpoint..." -ForegroundColor Gray
+    if ($selectedCluster -and $selectedCluster.apiServer) {
+        $apiServer = $selectedCluster.apiServer.TrimEnd('/')
+    }
+    else {
+        $clusterInfo = az aro show `
+            --name $ClusterName `
+            --resource-group $ResourceGroup `
+            --subscription $SubscriptionId `
+            --query "{apiServer:apiserverProfile.url, domain:clusterProfile.domain}" `
+            -o json 2>&1 | ConvertFrom-Json
 
-if (-not $clusterInfo.apiServer) {
-    Write-Error "Failed to retrieve cluster info. Ensure you are logged in (az login) and the cluster exists."
-    exit 1
+        if (-not $clusterInfo.apiServer) {
+            Write-Error "Failed to retrieve cluster info. Ensure you are logged in (az login) and the cluster exists."
+            exit 1
+        }
+
+        $apiServer = $clusterInfo.apiServer.TrimEnd('/')
+    }
+
+    Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
 }
-
-$apiServer = $clusterInfo.apiServer.TrimEnd('/')
-Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
+else {
+    Write-Host "  [1/3] Using provided cluster endpoint..." -ForegroundColor Gray
+    Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
+}
 
 # Step 2: Prompt for credentials (password is entered via oc login interactively)
 Write-Host "  [2/3] Enter cluster credentials..." -ForegroundColor Gray
@@ -297,7 +405,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Successfully authenticated to '$ClusterName'." -ForegroundColor Green
+if ($ClusterName) {
+    Write-Host "Successfully authenticated to '$ClusterName'." -ForegroundColor Green
+}
+else {
+    Write-Host "Successfully authenticated to '$apiServer'." -ForegroundColor Green
+}
 Write-Host "Run oc or kubectl commands directly:" -ForegroundColor Green
 Write-Host "  oc get nodes" -ForegroundColor Yellow
 Write-Host "  oc get clusteroperators" -ForegroundColor Yellow
