@@ -35,6 +35,9 @@
 .PARAMETER ClusterName
     ARO cluster name (Azure mode only). Falls back to env var ARO_CLUSTER_NAME, then prompts.
 
+.PARAMETER PromptOnly
+    Forces interactive prompts for connection context and ignores inline arguments/environment values.
+
 .EXAMPLE
     # Direct API login — prompts for credentials securely
     .\scripts\aro-login.ps1 -Direct
@@ -52,6 +55,10 @@
 .EXAMPLE
     # Azure mode — interactive (prompts for all values)
     .\scripts\aro-login.ps1
+
+.EXAMPLE
+    # Azure mode — force interactive prompts even if args/env are present
+    .\scripts\aro-login.ps1 -PromptOnly
 
 .EXAMPLE
     # Azure mode — using environment variables
@@ -78,7 +85,10 @@ param(
     [string]$ResourceGroup,
 
     [Parameter(Mandatory = $false)]
-    [string]$ClusterName
+    [string]$ClusterName,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$PromptOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -124,7 +134,7 @@ if ($Direct) {
     }
 
     # --- Resolve API server URL ---
-    if (-not $ApiServer) {
+    if (-not $PromptOnly -and -not $ApiServer) {
         $ApiServer = $env:ARO_API_SERVER
     }
     if (-not $ApiServer) {
@@ -136,7 +146,7 @@ if ($Direct) {
     }
 
     # --- Resolve username ---
-    if (-not $Username) {
+    if (-not $PromptOnly -and -not $Username) {
         $Username = $env:ARO_USERNAME
     }
     if (-not $Username) {
@@ -187,9 +197,9 @@ if ($Direct) {
 # Azure Mode (default) — uses Azure CLI to retrieve credentials
 # ============================================================================
 
-# --- Resolve parameters from args, env vars, or interactive prompt ---
+# --- Resolve parameters from args/env or interactive prompt (PromptOnly forces prompt path) ---
 
-if (-not $SubscriptionId) {
+if (-not $PromptOnly -and -not $SubscriptionId) {
     $SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
 }
 if (-not $SubscriptionId) {
@@ -200,7 +210,7 @@ if (-not $SubscriptionId) {
     exit 1
 }
 
-if (-not $ResourceGroup) {
+if (-not $PromptOnly -and -not $ResourceGroup) {
     $ResourceGroup = $env:ARO_RESOURCE_GROUP
 }
 if (-not $ResourceGroup) {
@@ -211,7 +221,7 @@ if (-not $ResourceGroup) {
     exit 1
 }
 
-if (-not $ClusterName) {
+if (-not $PromptOnly -and -not $ClusterName) {
     $ClusterName = $env:ARO_CLUSTER_NAME
 }
 if (-not $ClusterName) {
