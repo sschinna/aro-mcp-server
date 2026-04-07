@@ -73,6 +73,53 @@ function Run-And-Capture {
     return @($output.ToString())
 }
 
+function Get-NodeSummaryLines {
+    param([string]$OcCommand)
+
+    $nodeJson = & $OcCommand get nodes -o json | ConvertFrom-Json
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add(("{0,-46} {1,-22} {2,-7} {3,-9} {4,-15}" -f "NAME", "ROLES", "READY", "VERSION", "INTERNAL-IP")) | Out-Null
+
+    foreach ($item in $nodeJson.items) {
+        $roles = @($item.metadata.labels.PSObject.Properties.Name |
+            Where-Object { $_ -like 'node-role.kubernetes.io/*' } |
+            ForEach-Object { ($_ -replace 'node-role.kubernetes.io/', '') })
+        if (-not $roles -or $roles.Count -eq 0) {
+            $roles = @('worker')
+        }
+
+        $readyCondition = $item.status.conditions | Where-Object { $_.type -eq 'Ready' } | Select-Object -First 1
+        $internalIp = ($item.status.addresses | Where-Object { $_.type -eq 'InternalIP' } | Select-Object -First 1).address
+        $lines.Add(("{0,-46} {1,-22} {2,-7} {3,-9} {4,-15}" -f $item.metadata.name, ($roles -join ','), $readyCondition.status, $item.status.nodeInfo.kubeletVersion, $internalIp)) | Out-Null
+    }
+
+    return $lines
+}
+
+function Get-PodSummaryLines {
+    param(
+        [string]$OcCommand,
+        [string]$Namespace
+    )
+
+    $podJson = & $OcCommand get pods -n $Namespace -o json | ConvertFrom-Json
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add(("{0,-30} {1,-7} {2,-12} {3,-8} {4,-30}" -f "NAME", "READY", "STATUS", "RESTARTS", "NODE")) | Out-Null
+
+    foreach ($item in $podJson.items) {
+        $readyCount = @($item.status.containerStatuses | Where-Object { $_.ready }).Count
+        $totalCount = @($item.status.containerStatuses).Count
+        $restartCount = (@($item.status.containerStatuses | Measure-Object -Property restartCount -Sum).Sum)
+        if ($null -eq $restartCount) {
+            $restartCount = 0
+        }
+
+        $lines.Add(("{0,-30} {1,-7} {2,-12} {3,-8} {4,-30}" -f $item.metadata.name, "$readyCount/$totalCount", $item.status.phase, $restartCount, $item.spec.nodeName)) | Out-Null
+    }
+
+    return $lines
+}
+
 $az = Resolve-ToolPath -CommandName "az" -FallbackPath "$env:ProgramFiles(x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd"
 $oc = Resolve-ToolPath -CommandName "oc" -FallbackPath (Join-Path $env:USERPROFILE ".aro-mcp\oc.exe")
 
@@ -103,11 +150,11 @@ Write-Section -Buffer $report -Title "Cluster Version" -Content (Run-And-Capture
 
 Write-Section -Buffer $report -Title "Cluster Operators" -Content (Run-And-Capture -Command $oc -Arguments @("get", "clusteroperators"))
 
-Write-Section -Buffer $report -Title "Nodes" -Content (Run-And-Capture -Command $oc -Arguments @("get", "nodes", "-o", "wide"))
+Write-Section -Buffer $report -Title "Nodes" -Content (Get-NodeSummaryLines -OcCommand $oc)
 
 Write-Section -Buffer $report -Title "DNS Operator" -Content (Run-And-Capture -Command $oc -Arguments @("get", "clusteroperator", "dns"))
 
-Write-Section -Buffer $report -Title "DNS Pods" -Content (Run-And-Capture -Command $oc -Arguments @("get", "pods", "-n", "openshift-dns", "-o", "wide"))
+Write-Section -Buffer $report -Title "DNS Pods" -Content (Get-PodSummaryLines -OcCommand $oc -Namespace "openshift-dns")
 
 $etcdPod = (& $oc get pods -n openshift-etcd -l k8s-app=etcd -o jsonpath='{.items[0].metadata.name}' 2>$null).ToString()
 if ($etcdPod) {
