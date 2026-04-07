@@ -78,6 +78,7 @@ Show-Command "oc get clusterversion"
 Show-Command "oc get clusteroperators"
 Write-Host "3) Show node-level health and scale" -ForegroundColor Green
 Show-Command "oc get nodes -o wide"
+Show-Command "oc adm top nodes"
 Write-Host "4) Show DNS platform reliability" -ForegroundColor Green
 Show-Command "oc get clusteroperator dns"
 Show-Command "oc get pods -n openshift-dns -o wide"
@@ -113,6 +114,9 @@ if ($RunLive) {
 
     Write-Host "`n[Nodes]" -ForegroundColor Green
     & $ocCmd get nodes -o wide
+
+    Write-Host "`n[Node Metrics]" -ForegroundColor Green
+    & $ocCmd adm top nodes
 
     Write-Host "`n[DNS Operator]" -ForegroundColor Green
     & $ocCmd get clusteroperator dns

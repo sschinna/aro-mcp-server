@@ -478,6 +478,8 @@ dotnet build /p:AzmcpDir=/path/to/azmcp/directory
 
 ## Common ARO Commands
 
+`oc top nodes` is not available in this ARO environment. Use `oc adm top nodes` for node CPU and memory metrics.
+
 ### Cluster Management
 
 ```bash
@@ -486,7 +488,7 @@ oc get clusteroperators
 
 # Check node status
 oc get nodes -o wide
-oc top nodes
+oc adm top nodes
 
 # View cluster version
 oc get clusterversion
