@@ -480,6 +480,8 @@ dotnet build /p:AzmcpDir=/path/to/azmcp/directory
 
 `oc top nodes` is not available in this ARO environment. Use `oc adm top nodes` for node CPU and memory metrics.
 
+PowerShell users: keep the Linux and Ubuntu commands below as-is, and use the PowerShell equivalents in the notes where a command relies on `grep` or other Unix-style shell behavior.
+
 ### Cluster Management
 
 ```bash
@@ -497,6 +499,11 @@ oc describe clusterversion
 # Get cluster info
 oc cluster-info
 oc get roles -A | grep cluster
+```
+
+```powershell
+# PowerShell equivalent for filtering roles
+oc get roles -A | Select-String "cluster"
 ```
 
 ### Pod & Workload Diagnostics
