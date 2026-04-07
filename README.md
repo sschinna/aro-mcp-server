@@ -344,8 +344,14 @@ Copy-Item "$env:TEMP\oc-install\oc.exe" "$env:USERPROFILE\.aro-mcp\oc.exe"
 | Parameter | Required | Description |
 |---|---|---|
 | `--subscription` | Yes | Azure subscription ID |
-| `--resource-group` | No | Resource group name (required if `--cluster` is specified) |
-| `--cluster` | No | ARO cluster name. If omitted, lists all clusters in the subscription |
+| `--resource-group` | No | Resource group name. Required when `--cluster` is specified. If provided without `--cluster`, lists clusters only in that resource group. |
+| `--cluster` | No | ARO cluster name for single-cluster scoped retrieval (requires `--resource-group`). |
+| `--allow-subscription-enumeration` | No | Explicit opt-in to list all ARO clusters in the subscription. If omitted, subscription-wide listing is blocked by default. |
+
+Default privacy behavior:
+- `--cluster` + `--resource-group`: single-cluster details.
+- `--resource-group` only: scoped list for that resource group.
+- no scope: rejected unless `--allow-subscription-enumeration` is provided.
 
 ## ARO Cluster Deployment (Bicep)
 

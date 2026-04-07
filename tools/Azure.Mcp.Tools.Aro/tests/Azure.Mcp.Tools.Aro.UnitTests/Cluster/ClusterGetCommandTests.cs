@@ -27,7 +27,10 @@ public class ClusterGetCommandTests
 
     [Theory]
     [InlineData("--subscription sub1 --resource-group rg1 --cluster cluster1", true)]
+    [InlineData("--subscription sub1 --resource-group rg1", true)]
+    [InlineData("--subscription sub1 --allow-subscription-enumeration", true)]
     [InlineData("--subscription sub1 --cluster cluster1", false)]
+    [InlineData("--subscription sub1", false)]
     public async Task ExecuteAsync_ValidatesInputCorrectly(string args, bool shouldSucceed)
     {
         var aroService = Substitute.For<IAroService>();
@@ -54,7 +57,7 @@ public class ClusterGetCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_ListClusters_ReturnsAllClusters()
+    public async Task ExecuteAsync_ListClustersWithExplicitOptIn_ReturnsAllClusters()
     {
         var aroService = Substitute.For<IAroService>();
         var logger = Substitute.For<ILogger<ClusterGetCommand>>();
@@ -76,7 +79,7 @@ public class ClusterGetCommandTests
             .Returns(expectedClusters);
 
         var context = new CommandContext(new ServiceCollection().BuildServiceProvider());
-        var parseResult = command.GetCommand().Parse("--subscription sub1");
+        var parseResult = command.GetCommand().Parse("--subscription sub1 --allow-subscription-enumeration");
         var response = await command.ExecuteAsync(context, parseResult, TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.OK, response.Status);

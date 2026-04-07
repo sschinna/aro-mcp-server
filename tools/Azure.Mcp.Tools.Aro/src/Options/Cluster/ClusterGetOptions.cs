@@ -9,4 +9,7 @@ public class ClusterGetOptions : BaseAroOptions
 {
     [JsonPropertyName(AroOptionDefinitions.ClusterName)]
     public string? ClusterName { get; set; }
+
+    [JsonPropertyName(AroOptionDefinitions.AllowSubscriptionEnumerationName)]
+    public bool AllowSubscriptionEnumeration { get; set; }
 }

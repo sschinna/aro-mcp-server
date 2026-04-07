@@ -24,7 +24,7 @@ public sealed class ClusterGetCommand(ILogger<ClusterGetCommand> logger, IAroSer
     public override string Name => "get";
 
     public override string Description =>
-        "List/enumerate all Azure Red Hat OpenShift (ARO) clusters in a subscription. Get/retrieve/show the details of a specific cluster if a name is provided.";
+        "Get Azure Red Hat OpenShift (ARO) cluster details with explicit scope. By default, provide a cluster and resource group, or a resource group for scoped listing. Use --allow-subscription-enumeration only when you intentionally want a full subscription-wide cluster list.";
 
     public override string Title => CommandTitle;
 
@@ -43,13 +43,21 @@ public sealed class ClusterGetCommand(ILogger<ClusterGetCommand> logger, IAroSer
         base.RegisterOptions(command);
         command.Options.Add(OptionDefinitions.Common.ResourceGroup);
         command.Options.Add(AroOptionDefinitions.Cluster);
+        command.Options.Add(AroOptionDefinitions.AllowSubscriptionEnumeration);
         command.Validators.Add(commandResults =>
         {
             var clusterName = commandResults.GetValueOrDefault(AroOptionDefinitions.Cluster);
             var resourceGroup = commandResults.GetValueOrDefault(OptionDefinitions.Common.ResourceGroup);
+            var allowSubscriptionEnumeration = commandResults.GetValueOrDefault(AroOptionDefinitions.AllowSubscriptionEnumeration);
+
             if (!string.IsNullOrEmpty(clusterName) && string.IsNullOrEmpty(resourceGroup))
             {
                 commandResults.AddError("When specifying a cluster name, the --resource-group option is required.");
+            }
+
+            if (string.IsNullOrEmpty(clusterName) && string.IsNullOrEmpty(resourceGroup) && !allowSubscriptionEnumeration)
+            {
+                commandResults.AddError("To limit data exposure, specify --cluster and --resource-group for a specific cluster, or provide --resource-group for scoped listing. Use --allow-subscription-enumeration to explicitly list all clusters in the subscription.");
             }
         });
     }
@@ -58,6 +66,7 @@ public sealed class ClusterGetCommand(ILogger<ClusterGetCommand> logger, IAroSer
     {
         var options = base.BindOptions(parseResult);
         options.ClusterName = parseResult.GetValueOrDefault<string>(AroOptionDefinitions.Cluster.Name);
+        options.AllowSubscriptionEnumeration = parseResult.GetValueOrDefault<bool>(AroOptionDefinitions.AllowSubscriptionEnumeration.Name);
         options.ResourceGroup ??= parseResult.GetValueOrDefault<string>(OptionDefinitions.Common.ResourceGroup.Name);
         return options;
     }
