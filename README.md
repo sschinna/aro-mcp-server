@@ -45,10 +45,19 @@ Download or build the `azmcp` binary and place it in `~/.aro-mcp/`:
 # Option A: Install from the official Azure MCP NuGet tool
 dotnet tool install --global Azure.Mcp
 
-# Option B: Use a pre-built binary
-# Copy azmcp.exe to ~/.aro-mcp/ (Windows) or ~/.aro-mcp/ (Linux/macOS)
+# Option B: Use a pre-built binary on Windows
+# Copy azmcp.exe to ~/.aro-mcp/
+New-Item -ItemType Directory -Force -Path "$HOME/.aro-mcp" | Out-Null
+Copy-Item "C:/path/to/azmcp.exe" "$HOME/.aro-mcp/azmcp.exe"
+```
+
+```bash
+# Option A: Install from the official Azure MCP NuGet tool
+dotnet tool install --global Azure.Mcp
+
+# Option B: Use a pre-built binary on Linux/macOS
 mkdir -p ~/.aro-mcp
-cp /path/to/azmcp.exe ~/.aro-mcp/
+cp /path/to/azmcp ~/.aro-mcp/azmcp
 ```
 
 ### 3. Authenticate with Azure
@@ -101,10 +110,22 @@ If you already have the ARO API server URL and credentials (e.g., `kubeadmin` us
 .\scripts\aro-login.ps1 -Direct
 ```
 
+```bash
+# Interactive on Linux/macOS using PowerShell
+pwsh ./scripts/aro-login.ps1 -Direct
+```
+
 ```powershell
 # With parameters (password is always prompted securely, never passed as argument)
 .\scripts\aro-login.ps1 -Direct `
   -ApiServer "https://api.mycluster.eastus.aroapp.io:6443" `
+  -Username "kubeadmin"
+```
+
+```bash
+# With parameters on Linux/macOS using PowerShell
+pwsh ./scripts/aro-login.ps1 -Direct \
+  -ApiServer "https://api.mycluster.eastus.aroapp.io:6443" \
   -Username "kubeadmin"
 ```
 
@@ -113,6 +134,13 @@ If you already have the ARO API server URL and credentials (e.g., `kubeadmin` us
 $env:ARO_API_SERVER = "https://api.mycluster.eastus.aroapp.io:6443"
 $env:ARO_USERNAME = "kubeadmin"
 .\scripts\aro-login.ps1 -Direct
+```
+
+```bash
+# With environment variables on Linux/macOS
+export ARO_API_SERVER="https://api.mycluster.eastus.aroapp.io:6443"
+export ARO_USERNAME="kubeadmin"
+pwsh ./scripts/aro-login.ps1 -Direct
 ```
 
 > **Security:** The password is always prompted using `Read-Host -AsSecureString` and is never displayed, logged, or stored in shell history. It is cleared from memory immediately after login.
@@ -128,11 +156,22 @@ This mode uses Azure CLI to automatically retrieve kubeadmin credentials and exc
 .\scripts\aro-login.ps1
 ```
 
+```bash
+pwsh ./scripts/aro-login.ps1
+```
+
 **With parameters:**
 ```powershell
 .\scripts\aro-login.ps1 `
   -SubscriptionId "<YOUR_SUBSCRIPTION_ID>" `
   -ResourceGroup "<YOUR_RESOURCE_GROUP>" `
+  -ClusterName "<YOUR_CLUSTER_NAME>"
+```
+
+```bash
+pwsh ./scripts/aro-login.ps1 \
+  -SubscriptionId "<YOUR_SUBSCRIPTION_ID>" \
+  -ResourceGroup "<YOUR_RESOURCE_GROUP>" \
   -ClusterName "<YOUR_CLUSTER_NAME>"
 ```
 
@@ -142,6 +181,13 @@ $env:AZURE_SUBSCRIPTION_ID = "<YOUR_SUBSCRIPTION_ID>"
 $env:ARO_RESOURCE_GROUP = "<YOUR_RESOURCE_GROUP>"
 $env:ARO_CLUSTER_NAME = "<YOUR_CLUSTER_NAME>"
 .\scripts\aro-login.ps1
+```
+
+```bash
+export AZURE_SUBSCRIPTION_ID="<YOUR_SUBSCRIPTION_ID>"
+export ARO_RESOURCE_GROUP="<YOUR_RESOURCE_GROUP>"
+export ARO_CLUSTER_NAME="<YOUR_CLUSTER_NAME>"
+pwsh ./scripts/aro-login.ps1
 ```
 
 What the Azure mode script does:

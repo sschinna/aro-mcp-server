@@ -9,6 +9,9 @@
 
 .EXAMPLE
     .\scripts\aro-mcp-diagnose-record.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
+
+.EXAMPLE
+    pwsh ./scripts/aro-mcp-diagnose-record.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
 #>
 
 param(

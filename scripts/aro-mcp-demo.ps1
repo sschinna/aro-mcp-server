@@ -11,6 +11,12 @@
 
 .EXAMPLE
     .\scripts\aro-mcp-demo.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster" -RunLive
+
+.EXAMPLE
+    pwsh ./scripts/aro-mcp-demo.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
+
+.EXAMPLE
+    pwsh ./scripts/aro-mcp-demo.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster" -RunLive
 #>
 
 param(
