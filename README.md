@@ -17,7 +17,6 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 | Tool | Description |
 |---|---|
 | `aro_cluster_get` | List all ARO clusters in a subscription, or get details of a specific cluster (profiles, networking, API server, worker nodes, provisioning state) |
-| `aro_documentation_list` | List curated public Azure Learn and Red Hat documentation links for ARO/OpenShift with optional provider (`azure`,`redhat`,`all`) and topic filters |
 
 ## Prerequisites
 
@@ -45,19 +44,10 @@ Download or build the `azmcp` binary and place it in `~/.aro-mcp/`:
 # Option A: Install from the official Azure MCP NuGet tool
 dotnet tool install --global Azure.Mcp
 
-# Option B: Use a pre-built binary on Windows
-# Copy azmcp.exe to ~/.aro-mcp/
-New-Item -ItemType Directory -Force -Path "$HOME/.aro-mcp" | Out-Null
-Copy-Item "C:/path/to/azmcp.exe" "$HOME/.aro-mcp/azmcp.exe"
-```
-
-```bash
-# Option A: Install from the official Azure MCP NuGet tool
-dotnet tool install --global Azure.Mcp
-
-# Option B: Use a pre-built binary on Linux/macOS
+# Option B: Use a pre-built binary
+# Copy azmcp.exe to ~/.aro-mcp/ (Windows) or ~/.aro-mcp/ (Linux/macOS)
 mkdir -p ~/.aro-mcp
-cp /path/to/azmcp ~/.aro-mcp/azmcp
+cp /path/to/azmcp.exe ~/.aro-mcp/
 ```
 
 ### 3. Authenticate with Azure
@@ -85,11 +75,11 @@ To add it to **another workspace** or **globally**, add this to your VS Code `se
     "servers": {
       "aro-mcp-server": {
         "type": "stdio",
-        "command": "azmcp",
+        "command": "dotnet",
         "args": [
-          "server", "start",
-          "--tool", "aro_cluster_get",
-          "--tool", "aro_documentation_list"
+          "run", "--project",
+          "/path/to/aro-mcp-server/tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj",
+          "--", "server", "start", "--transport", "stdio"
         ]
       }
     }
@@ -99,33 +89,35 @@ To add it to **another workspace** or **globally**, add this to your VS Code `se
 
 ### 5. Authenticate to your ARO cluster
 
-Two authentication modes are available:
+Run the login script — it will ask how you want to connect:
+
+```powershell
+.\scripts\aro-login.ps1
+```
+
+```
+ARO Cluster Login
+  How would you like to connect?
+
+  [S] Subscription lookup  — provide subscription ID, resource group, and cluster name
+  [A] API Server direct    — provide the ARO API server URL
+
+Choose login mode [S/A] (default: S):
+```
 
 #### Option A: Direct API Server Login (no Azure subscription needed)
 
-If you already have the ARO API server URL and credentials (e.g., `kubeadmin` username/password), you can log in directly without any Azure CLI or subscription access:
+If you already have the ARO API server URL and credentials (e.g., `kubeadmin` username/password), choose `[A]` or use the `-Direct` flag:
 
 ```powershell
 # Interactive — prompts for API server URL, username, and password (password is hidden)
 .\scripts\aro-login.ps1 -Direct
 ```
 
-```bash
-# Interactive on Linux/macOS using PowerShell
-pwsh ./scripts/aro-login.ps1 -Direct
-```
-
 ```powershell
 # With parameters (password is always prompted securely, never passed as argument)
 .\scripts\aro-login.ps1 -Direct `
   -ApiServer "https://api.mycluster.eastus.aroapp.io:6443" `
-  -Username "kubeadmin"
-```
-
-```bash
-# With parameters on Linux/macOS using PowerShell
-pwsh ./scripts/aro-login.ps1 -Direct \
-  -ApiServer "https://api.mycluster.eastus.aroapp.io:6443" \
   -Username "kubeadmin"
 ```
 
@@ -136,28 +128,17 @@ $env:ARO_USERNAME = "kubeadmin"
 .\scripts\aro-login.ps1 -Direct
 ```
 
-```bash
-# With environment variables on Linux/macOS
-export ARO_API_SERVER="https://api.mycluster.eastus.aroapp.io:6443"
-export ARO_USERNAME="kubeadmin"
-pwsh ./scripts/aro-login.ps1 -Direct
-```
-
 > **Security:** The password is always prompted using `Read-Host -AsSecureString` and is never displayed, logged, or stored in shell history. It is cleared from memory immediately after login.
 
 **Requirements:** Only the `oc` CLI is needed. No Azure CLI, no Azure subscription.
 
-#### Option B: Azure CLI Login (automatic credential retrieval)
+#### Option B: Subscription Lookup (automatic credential retrieval)
 
-This mode uses Azure CLI to automatically retrieve kubeadmin credentials and exchange them for an OAuth token — no need to know the password.
+Choose `[S]` at the prompt, or provide parameters directly. This mode uses Azure CLI to automatically retrieve kubeadmin credentials and exchange them for an OAuth token — no need to know the password.
 
 **Interactive mode (prompts for all values):**
 ```powershell
 .\scripts\aro-login.ps1
-```
-
-```bash
-pwsh ./scripts/aro-login.ps1
 ```
 
 **With parameters:**
@@ -168,26 +149,12 @@ pwsh ./scripts/aro-login.ps1
   -ClusterName "<YOUR_CLUSTER_NAME>"
 ```
 
-```bash
-pwsh ./scripts/aro-login.ps1 \
-  -SubscriptionId "<YOUR_SUBSCRIPTION_ID>" \
-  -ResourceGroup "<YOUR_RESOURCE_GROUP>" \
-  -ClusterName "<YOUR_CLUSTER_NAME>"
-```
-
 **With environment variables:**
 ```powershell
 $env:AZURE_SUBSCRIPTION_ID = "<YOUR_SUBSCRIPTION_ID>"
 $env:ARO_RESOURCE_GROUP = "<YOUR_RESOURCE_GROUP>"
 $env:ARO_CLUSTER_NAME = "<YOUR_CLUSTER_NAME>"
 .\scripts\aro-login.ps1
-```
-
-```bash
-export AZURE_SUBSCRIPTION_ID="<YOUR_SUBSCRIPTION_ID>"
-export ARO_RESOURCE_GROUP="<YOUR_RESOURCE_GROUP>"
-export ARO_CLUSTER_NAME="<YOUR_CLUSTER_NAME>"
-pwsh ./scripts/aro-login.ps1
 ```
 
 What the Azure mode script does:
@@ -235,12 +202,6 @@ User: Get details of my-aro-cluster in resource group my-aro-rg
 User: What is the provisioning state and worker count of my ARO cluster?
 ```
 
-**Find public docs:**
-```
-User: Show Azure and Red Hat docs for ARO networking
-User: List Red Hat OpenShift troubleshooting docs
-```
-
 **Node and operator diagnostics (via kubectl/oc):**
 ```
 User: Check the ARO cluster node health and CPU utilization
@@ -275,13 +236,20 @@ oc get clusterversion
 
 ### Direct oc login (without the script)
 
-If you prefer to log in manually without the script:
+> **Security:** Never pass passwords on the command line (e.g., `oc login -p <password>`). Passwords in command-line arguments are visible in process lists, shell history, and terminal logs.
+
+Use `oc login` interactively instead — it will prompt for the password securely:
 
 ```bash
-oc login https://api.mycluster.eastus.aroapp.io:6443 -u kubeadmin -p <password> --insecure-skip-tls-verify
+oc login https://api.mycluster.eastus.aroapp.io:6443 -u kubeadmin --insecure-skip-tls-verify
+# Password: (enter securely at prompt — not displayed)
 ```
 
-> **Warning:** Passing the password on the command line may expose it in shell history. Prefer using the script with `-Direct` for secure credential handling.
+For automated/non-interactive flows, prefer the login script which retrieves credentials via Azure CLI and exchanges them for an OAuth token without ever exposing them:
+
+```powershell
+.\scripts\aro-login.ps1
+```
 
 The tool returns cluster metadata including:
 - Cluster profile (domain, version, FIPS status)
@@ -344,14 +312,8 @@ Copy-Item "$env:TEMP\oc-install\oc.exe" "$env:USERPROFILE\.aro-mcp\oc.exe"
 | Parameter | Required | Description |
 |---|---|---|
 | `--subscription` | Yes | Azure subscription ID |
-| `--resource-group` | No | Resource group name. Required when `--cluster` is specified. If provided without `--cluster`, lists clusters only in that resource group. |
-| `--cluster` | No | ARO cluster name for single-cluster scoped retrieval (requires `--resource-group`). |
-| `--allow-subscription-enumeration` | No | Explicit opt-in to list all ARO clusters in the subscription. If omitted, subscription-wide listing is blocked by default. |
-
-Default privacy behavior:
-- `--cluster` + `--resource-group`: single-cluster details.
-- `--resource-group` only: scoped list for that resource group.
-- no scope: rejected unless `--allow-subscription-enumeration` is provided.
+| `--resource-group` | No | Resource group name (required if `--cluster` is specified) |
+| `--cluster` | No | ARO cluster name. If omitted, lists all clusters in the subscription |
 
 ## ARO Cluster Deployment (Bicep)
 
@@ -447,16 +409,20 @@ Default configuration:
 az aro show --name $CLUSTER --resource-group $RESOURCEGROUP \
   --query "{state:provisioningState, console:consoleProfile.url, api:apiserverProfile.url}" -o table
 
-# Get cluster credentials
-az aro list-credentials --name $CLUSTER --resource-group $RESOURCEGROUP
-
 # Access the OpenShift console
 az aro show --name $CLUSTER --resource-group $RESOURCEGROUP --query consoleProfile.url -o tsv
 
-# Login with oc CLI
+# Login securely using the login script (credentials never exposed)
+# The script retrieves credentials via Azure CLI and exchanges them for an OAuth token
+pwsh ./scripts/aro-login.ps1 -SubscriptionId "$SUBSCRIPTION_ID" -ResourceGroup "$RESOURCEGROUP" -ClusterName "$CLUSTER"
+
+# Or login interactively (oc prompts for password securely)
 API_URL=$(az aro show --name $CLUSTER --resource-group $RESOURCEGROUP --query apiserverProfile.url -o tsv)
-KUBEADMIN_PASS=$(az aro list-credentials --name $CLUSTER --resource-group $RESOURCEGROUP --query kubeadminPassword -o tsv)
-oc login $API_URL -u kubeadmin -p $KUBEADMIN_PASS
+oc login $API_URL -u kubeadmin --insecure-skip-tls-verify
+# Password: (enter at secure prompt)
+
+# IMPORTANT: Never use 'az aro list-credentials' output directly on the command line.
+# Credentials in command-line arguments are visible in process lists and shell history.
 ```
 
 ### Cleanup
@@ -527,121 +493,6 @@ To build with a custom `azmcp` location:
 ```bash
 dotnet build /p:AzmcpDir=/path/to/azmcp/directory
 ```
-
-## Common ARO Commands
-
-`oc top nodes` is not available in this ARO environment. Use `oc adm top nodes` for node CPU and memory metrics.
-
-PowerShell users: keep the Linux and Ubuntu commands below as-is, and use the PowerShell equivalents in the notes where a command relies on `grep` or other Unix-style shell behavior.
-
-### Cluster Management
-
-```bash
-# List cluster operators
-oc get clusteroperators
-
-# Check node status
-oc get nodes -o wide
-oc adm top nodes
-
-# View cluster version
-oc get clusterversion
-oc describe clusterversion
-
-# Get cluster info
-oc cluster-info
-oc get roles -A | grep cluster
-```
-
-```powershell
-# PowerShell equivalent for filtering roles
-oc get roles -A | Select-String "cluster"
-```
-
-### Pod & Workload Diagnostics
-
-```bash
-# List all pods across namespace
-oc get pods -A
-
-# Describe failing pod
-oc describe pod <pod-name> -n <namespace>
-
-# View pod logs
-oc logs <pod-name> -n <namespace>
-oc logs <pod-name> -n <namespace> --tail=50 -f  # Last 50 lines, follow
-
-# Check events
-oc get events -A --sort-by='.lastTimestamp'
-```
-
-### Network & Storage
-
-```bash
-# List ingress controllers
-oc get ingresscontroller -A
-
-# Check storage classes
-oc get storageclasses
-oc get persistentvolumeclaims -A
-
-# View network policies
-oc get networkpolicies -A
-```
-
-### User & RBAC
-
-```bash
-# Current user
-oc whoami
-
-# List roles
-oc get clusterroles
-oc get roles -A
-
-# Check role bindings
-oc get clusterrolebindings
-oc describe clusterrolebinding <binding-name>
-```
-
-### PowerShell Examples
-
-```powershell
-# Cluster management
-oc get clusteroperators
-oc get nodes -o wide
-oc adm top nodes
-oc get clusterversion
-oc describe clusterversion
-oc cluster-info
-oc get roles -A | Select-String "cluster"
-
-# Pod and workload diagnostics
-oc get pods -A
-oc describe pod <pod-name> -n <namespace>
-oc logs <pod-name> -n <namespace>
-oc logs <pod-name> -n <namespace> --tail=50 -f
-oc get events -A | Sort-Object
-
-# Network and storage
-oc get ingresscontroller -A
-oc get storageclasses
-oc get persistentvolumeclaims -A
-oc get networkpolicies -A
-
-# User and RBAC
-oc whoami
-oc get clusterroles
-oc get roles -A
-oc get clusterrolebindings
-oc describe clusterrolebinding <binding-name>
-
-# Common filtering examples
-oc get nodes -o name | Where-Object { $_ -match 'worker' } | Select-Object -First 1
-oc describe node <node-name> | Out-String -Stream | Select-String -Pattern "Conditions:" -Context 0,8
-```
-
----
 
 ## License
 
