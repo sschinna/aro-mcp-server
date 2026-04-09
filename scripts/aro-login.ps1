@@ -136,40 +136,33 @@ if ($useApiServerMode) {
         $Username = "kubeadmin"
     }
 
-    # --- Prompt for password securely (never displayed) ---
-    $securePassword = Read-Host "Enter password" -AsSecureString
-    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
-    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    # --- Login with oc (let oc prompt for password securely — never on command line) ---
+    $maxRetries = 3
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        Write-Host "  Logging in to $ApiServer as $Username (attempt $attempt/$maxRetries)..." -ForegroundColor Gray
+        Write-Host "  (oc will prompt for your password securely)" -ForegroundColor Gray
+        & $ocCmd login $ApiServer -u $Username --insecure-skip-tls-verify
 
-    if (-not $password) {
-        Write-Error "Password is required."
-        exit 1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host ""
+            Write-Host "Successfully authenticated to $ApiServer." -ForegroundColor Green
+            Write-Host "Run oc or kubectl commands directly:" -ForegroundColor Green
+            Write-Host "  oc get nodes" -ForegroundColor Yellow
+            Write-Host "  oc get clusteroperators" -ForegroundColor Yellow
+            Write-Host "  oc get pods -A" -ForegroundColor Yellow
+            Write-Host "  kubectl get nodes" -ForegroundColor Yellow
+            Write-Host "  kubectl top nodes" -ForegroundColor Yellow
+            exit 0
+        }
+
+        if ($attempt -lt $maxRetries) {
+            Write-Host ""
+            Write-Host "  Login failed. Retrying..." -ForegroundColor Yellow
+        }
     }
 
-    # --- Login with oc (password piped via stdin, never on command line) ---
-    Write-Host "  Logging in to $ApiServer as $Username..." -ForegroundColor Gray
-    $ocOutput = $password | & $ocCmd login $ApiServer -u $Username --password-stdin --insecure-skip-tls-verify 2>&1
-
-    # Clear password from memory immediately
-    $password = $null
-    $securePassword = $null
-    [System.GC]::Collect()
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "oc login failed: $ocOutput"
-        exit 1
-    }
-
-    Write-Host ""
-    Write-Host "Successfully authenticated to $ApiServer." -ForegroundColor Green
-    Write-Host "Run oc or kubectl commands directly:" -ForegroundColor Green
-    Write-Host "  oc get nodes" -ForegroundColor Yellow
-    Write-Host "  oc get clusteroperators" -ForegroundColor Yellow
-    Write-Host "  oc get pods -A" -ForegroundColor Yellow
-    Write-Host "  kubectl get nodes" -ForegroundColor Yellow
-    Write-Host "  kubectl top nodes" -ForegroundColor Yellow
-    exit 0
+    Write-Error "oc login failed after $maxRetries attempts. Check API server URL, username, and password."
+    exit 1
 }
 
 # ============================================================================
@@ -223,92 +216,118 @@ if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# Step 1: Get cluster API server URL (not sensitive)
-Write-Host "  [1/4] Retrieving cluster endpoint..." -ForegroundColor Gray
-$clusterInfo = az aro show `
-    --name $ClusterName `
-    --resource-group $ResourceGroup `
-    --subscription $SubscriptionId `
-    --query "{apiServer:apiserverProfile.url, domain:clusterProfile.domain}" `
-    -o json 2>&1 | ConvertFrom-Json
+$maxRetries = 3
+$loginSuccess = $false
 
-if (-not $clusterInfo.apiServer) {
-    Write-Error "Failed to retrieve cluster info. Ensure you are logged in (az login) and the cluster exists."
-    exit 1
-}
+for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+    if ($attempt -gt 1) {
+        Write-Host ""
+        Write-Host "  Retry $attempt/$maxRetries..." -ForegroundColor Yellow
+    }
 
-$apiServer = $clusterInfo.apiServer.TrimEnd('/')
-$domain = $clusterInfo.domain
-Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
+    # Step 1: Get cluster API server URL (not sensitive)
+    Write-Host "  [1/4] Retrieving cluster endpoint..." -ForegroundColor Gray
+    $clusterInfo = az aro show `
+        --name $ClusterName `
+        --resource-group $ResourceGroup `
+        --subscription $SubscriptionId `
+        --query "{apiServer:apiserverProfile.url, domain:clusterProfile.domain}" `
+        -o json 2>&1 | ConvertFrom-Json
 
-# Step 2: Get credentials (captured securely, never displayed)
-Write-Host "  [2/4] Retrieving credentials (hidden)..." -ForegroundColor Gray
-$creds = az aro list-credentials `
-    --name $ClusterName `
-    --resource-group $ResourceGroup `
-    --subscription $SubscriptionId `
-    -o json 2>&1 | ConvertFrom-Json
+    if (-not $clusterInfo.apiServer) {
+        Write-Host "  Failed to retrieve cluster info." -ForegroundColor Red
+        if ($attempt -lt $maxRetries) { continue } else {
+            Write-Error "Failed after $maxRetries attempts. Ensure you are logged in (az login) and the cluster exists."
+            exit 1
+        }
+    }
 
-if (-not $creds.kubeadminPassword) {
-    Write-Error "Failed to retrieve cluster credentials."
-    exit 1
-}
+    $apiServer = $clusterInfo.apiServer.TrimEnd('/')
+    $domain = $clusterInfo.domain
+    Write-Host "  Cluster endpoint: $apiServer" -ForegroundColor Gray
 
-# Step 3: Exchange credentials for OAuth token (never displayed)
-Write-Host "  [3/4] Obtaining OAuth token (hidden)..." -ForegroundColor Gray
+    # Step 2: Get credentials (captured securely, never displayed)
+    Write-Host "  [2/4] Retrieving credentials (hidden)..." -ForegroundColor Gray
+    $creds = az aro list-credentials `
+        --name $ClusterName `
+        --resource-group $ResourceGroup `
+        --subscription $SubscriptionId `
+        -o json 2>&1 | ConvertFrom-Json
 
-# Derive the OAuth URL from the API server
-$oauthHost = $apiServer -replace "https://api\.", "https://oauth-openshift.apps."
-$oauthHost = $oauthHost -replace ":\d+$", ""
-$oauthUrl = "$oauthHost/oauth/authorize?client_id=openshift-challenging-client&response_type=token"
+    if (-not $creds.kubeadminPassword) {
+        Write-Host "  Failed to retrieve cluster credentials." -ForegroundColor Red
+        if ($attempt -lt $maxRetries) { continue } else {
+            Write-Error "Failed after $maxRetries attempts to retrieve credentials."
+            exit 1
+        }
+    }
 
-# Exchange credentials for OAuth token using .NET HttpClient (all in-process, no external commands)
-$encodedCreds = [Convert]::ToBase64String(
-    [System.Text.Encoding]::UTF8.GetBytes("$($creds.kubeadminUsername):$($creds.kubeadminPassword)")
-)
+    # Step 3: Exchange credentials for OAuth token (never displayed)
+    Write-Host "  [3/4] Obtaining OAuth token (hidden)..." -ForegroundColor Gray
 
-$handler = [System.Net.Http.HttpClientHandler]::new()
-$handler.ServerCertificateCustomValidationCallback = [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
-$handler.AllowAutoRedirect = $false
+    $oauthHost = $apiServer -replace "https://api\.", "https://oauth-openshift.apps."
+    $oauthHost = $oauthHost -replace ":\d+$", ""
+    $oauthUrl = "$oauthHost/oauth/authorize?client_id=openshift-challenging-client&response_type=token"
 
-$httpClient = [System.Net.Http.HttpClient]::new($handler)
-$httpClient.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Basic", $encodedCreds)
-$httpClient.DefaultRequestHeaders.Add("X-CSRF-Token", "1")
+    $encodedCreds = [Convert]::ToBase64String(
+        [System.Text.Encoding]::UTF8.GetBytes("$($creds.kubeadminUsername):$($creds.kubeadminPassword)")
+    )
 
-try {
-    $httpResponse = $httpClient.GetAsync($oauthUrl).GetAwaiter().GetResult()
-    $locationHeader = $httpResponse.Headers.Location?.ToString()
-} catch {
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.ServerCertificateCustomValidationCallback = [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
+    $handler.AllowAutoRedirect = $false
+
+    $httpClient = [System.Net.Http.HttpClient]::new($handler)
+    $httpClient.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Basic", $encodedCreds)
+    $httpClient.DefaultRequestHeaders.Add("X-CSRF-Token", "1")
+
     $locationHeader = $null
-} finally {
-    $httpClient.Dispose()
-    $handler.Dispose()
+    try {
+        $httpResponse = $httpClient.GetAsync($oauthUrl).GetAwaiter().GetResult()
+        $locationHeader = $httpResponse.Headers.Location?.ToString()
+    } catch {
+        $locationHeader = $null
+    } finally {
+        $httpClient.Dispose()
+        $handler.Dispose()
+    }
+
+    # Clear sensitive variables
+    $encodedCreds = $null
+    $creds = $null
+
+    if (-not $locationHeader -or $locationHeader -notmatch "access_token=([^&]+)") {
+        Write-Host "  Failed to obtain OAuth token." -ForegroundColor Red
+        if ($attempt -lt $maxRetries) { continue } else {
+            Write-Error "Failed after $maxRetries attempts. Check cluster connectivity and credentials."
+            exit 1
+        }
+    }
+
+    $token = $Matches[1]
+
+    # Step 4: Configure kubeconfig securely
+    Write-Host "  [4/4] Configuring kubeconfig..." -ForegroundColor Gray
+
+    $contextName = "aro-$ClusterName"
+
+    kubectl config set-cluster $ClusterName --server=$apiServer --insecure-skip-tls-verify=true 2>&1 | Out-Null
+    kubectl config set-credentials "${ClusterName}-admin" --token=$token 2>&1 | Out-Null
+    kubectl config set-context $contextName --cluster=$ClusterName --user="${ClusterName}-admin" 2>&1 | Out-Null
+    kubectl config use-context $contextName 2>&1 | Out-Null
+
+    # Clear token from memory
+    $token = $null
+    [System.GC]::Collect()
+
+    $loginSuccess = $true
+    break
 }
 
-if (-not $locationHeader -or $locationHeader -notmatch "access_token=([^&]+)") {
-    Write-Error "Failed to obtain OAuth token. Check cluster connectivity and credentials."
+if (-not $loginSuccess) {
+    Write-Error "Login failed after $maxRetries attempts."
     exit 1
 }
-
-$token = $Matches[1]
-
-# Clear sensitive variables from memory
-$encodedCreds = $null
-$creds = $null
-
-# Step 4: Configure kubeconfig securely
-Write-Host "  [4/4] Configuring kubeconfig..." -ForegroundColor Gray
-
-$contextName = "aro-$ClusterName"
-
-kubectl config set-cluster $ClusterName --server=$apiServer --insecure-skip-tls-verify=true 2>&1 | Out-Null
-kubectl config set-credentials "${ClusterName}-admin" --token=$token 2>&1 | Out-Null
-kubectl config set-context $contextName --cluster=$ClusterName --user="${ClusterName}-admin" 2>&1 | Out-Null
-kubectl config use-context $contextName 2>&1 | Out-Null
-
-# Clear token from memory
-$token = $null
-[System.GC]::Collect()
 
 Write-Host ""
 Write-Host "Successfully authenticated to '$ClusterName'." -ForegroundColor Green
