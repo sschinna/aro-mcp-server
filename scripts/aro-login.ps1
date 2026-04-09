@@ -269,39 +269,27 @@ $oauthHost = $apiServer -replace "https://api\.", "https://oauth-openshift.apps.
 $oauthHost = $oauthHost -replace ":\d+$", ""
 $oauthUrl = "$oauthHost/oauth/authorize?client_id=openshift-challenging-client&response_type=token"
 
-# Use Invoke-WebRequest to keep credentials out of process command line
+# Exchange credentials for OAuth token using .NET HttpClient (all in-process, no external commands)
 $encodedCreds = [Convert]::ToBase64String(
     [System.Text.Encoding]::UTF8.GetBytes("$($creds.kubeadminUsername):$($creds.kubeadminPassword)")
 )
 
-try {
-    # Credentials are passed via HTTP headers (in-process), never on the command line
-    $response = Invoke-WebRequest -Uri $oauthUrl `
-        -Method Get `
-        -Headers @{
-            "Authorization" = "Basic $encodedCreds"
-            "X-CSRF-Token"  = "1"
-        } `
-        -MaximumRedirection 0 `
-        -SkipCertificateCheck `
-        -SkipHttpErrorCheck `
-        -ErrorAction Stop 2>&1
-} catch [Microsoft.PowerShell.Commands.HttpResponseException] {
-    $response = $_.Exception.Response
-} catch {
-    # Invoke-WebRequest treats redirects as errors when MaximumRedirection is 0
-    $response = $_
-}
+$handler = [System.Net.Http.HttpClientHandler]::new()
+$handler.ServerCertificateCustomValidationCallback = [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
+$handler.AllowAutoRedirect = $false
 
-# Extract token from the Location redirect header
-$locationHeader = $null
-if ($response -is [Microsoft.PowerShell.Commands.BasicHtmlWebResponseObject]) {
-    $locationHeader = $response.Headers["Location"]
-    if ($locationHeader -is [System.Collections.Generic.IEnumerable[string]]) {
-        $locationHeader = ($locationHeader | Select-Object -First 1)
-    }
-} elseif ($response.Exception.Response) {
-    $locationHeader = $response.Exception.Response.Headers.Location?.ToString()
+$httpClient = [System.Net.Http.HttpClient]::new($handler)
+$httpClient.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Basic", $encodedCreds)
+$httpClient.DefaultRequestHeaders.Add("X-CSRF-Token", "1")
+
+try {
+    $httpResponse = $httpClient.GetAsync($oauthUrl).GetAwaiter().GetResult()
+    $locationHeader = $httpResponse.Headers.Location?.ToString()
+} catch {
+    $locationHeader = $null
+} finally {
+    $httpClient.Dispose()
+    $handler.Dispose()
 }
 
 if (-not $locationHeader -or $locationHeader -notmatch "access_token=([^&]+)") {
