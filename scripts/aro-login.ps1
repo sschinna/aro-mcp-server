@@ -88,30 +88,17 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# Determine login mode: -Direct flag, parameters provided, or interactive choice
+# Always prompt for login mode — user must choose how to connect
 # ============================================================================
-$useApiServerMode = $false
-
-if ($Direct) {
-    $useApiServerMode = $true
-} elseif (-not $SubscriptionId -and -not $ResourceGroup -and -not $ClusterName -and -not $ApiServer `
-          -and -not $env:AZURE_SUBSCRIPTION_ID -and -not $env:ARO_RESOURCE_GROUP -and -not $env:ARO_CLUSTER_NAME -and -not $env:ARO_API_SERVER) {
-    # No parameters or env vars — ask the user
-    Write-Host ""
-    Write-Host "ARO Cluster Login" -ForegroundColor Cyan
-    Write-Host "  How would you like to connect?" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [S] Subscription lookup  — provide subscription ID, resource group, and cluster name" -ForegroundColor Yellow
-    Write-Host "  [A] API Server direct    — provide the ARO API server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)" -ForegroundColor Yellow
-    Write-Host ""
-    $choice = Read-Host "Choose login mode [S/A] (default: S)"
-    if ($choice -match '^[Aa]') {
-        $useApiServerMode = $true
-    }
-} elseif ($ApiServer -and -not $SubscriptionId) {
-    # ApiServer provided without subscription — treat as direct mode
-    $useApiServerMode = $true
-}
+Write-Host ""
+Write-Host "ARO Cluster Login" -ForegroundColor Cyan
+Write-Host "  How would you like to connect?" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  [S] Subscription lookup  — provide subscription ID, resource group, and cluster name" -ForegroundColor Yellow
+Write-Host "  [A] API Server direct    — provide the ARO API server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)" -ForegroundColor Yellow
+Write-Host ""
+$choice = Read-Host "Choose login mode [S/A] (default: S)"
+$useApiServerMode = $choice -match '^[Aa]'
 
 # ============================================================================
 # API Server Login Mode (direct connection, no Azure subscription needed)
