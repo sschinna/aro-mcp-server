@@ -195,5 +195,5 @@ internal sealed class AroClusterProperties
 internal sealed class AroServicePrincipalProperties
 {
     public string? ClientId { get; set; }
-    public string? ClientSecret { get; set; }
+    // ClientSecret intentionally excluded — never deserialize or expose secrets in MCP tool output
 }
