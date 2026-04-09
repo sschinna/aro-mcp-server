@@ -123,28 +123,17 @@ if ($useApiServerMode) {
         $ocCmd = $ocCmd.Source
     }
 
-    # --- Resolve API server URL ---
+    # --- Always prompt for API server URL ---
+    $ApiServer = Read-Host "Enter ARO API Server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)"
     if (-not $ApiServer) {
-        $ApiServer = $env:ARO_API_SERVER
-    }
-    if (-not $ApiServer) {
-        $ApiServer = Read-Host "Enter ARO API Server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)"
-    }
-    if (-not $ApiServer) {
-        Write-Error "API Server URL is required. Pass -ApiServer, set ARO_API_SERVER, or enter interactively."
+        Write-Error "API Server URL is required."
         exit 1
     }
 
-    # --- Resolve username ---
+    # --- Always prompt for username ---
+    $Username = Read-Host "Enter username (default: kubeadmin)"
     if (-not $Username) {
-        $Username = $env:ARO_USERNAME
-    }
-    if (-not $Username) {
-        $Username = Read-Host "Enter username (e.g., kubeadmin)"
-    }
-    if (-not $Username) {
-        Write-Error "Username is required. Pass -Username, set ARO_USERNAME, or enter interactively."
-        exit 1
+        $Username = "kubeadmin"
     }
 
     # --- Prompt for password securely (never displayed) ---
@@ -187,38 +176,26 @@ if ($useApiServerMode) {
 # Subscription Mode — uses Azure CLI to look up cluster and retrieve credentials
 # ============================================================================
 
-# --- Resolve parameters from args, env vars, or interactive prompt ---
+# --- Always prompt for subscription, resource group, and cluster name ---
+Write-Host ""
+Write-Host "Subscription Login Mode" -ForegroundColor Cyan
+Write-Host ""
 
+$SubscriptionId = Read-Host "Enter Azure Subscription ID"
 if (-not $SubscriptionId) {
-    $SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
-}
-if (-not $SubscriptionId) {
-    $SubscriptionId = Read-Host "Enter Azure Subscription ID"
-}
-if (-not $SubscriptionId) {
-    Write-Error "Subscription ID is required. Pass -SubscriptionId, set AZURE_SUBSCRIPTION_ID, or enter interactively."
+    Write-Error "Subscription ID is required."
     exit 1
 }
 
+$ResourceGroup = Read-Host "Enter ARO Resource Group name"
 if (-not $ResourceGroup) {
-    $ResourceGroup = $env:ARO_RESOURCE_GROUP
-}
-if (-not $ResourceGroup) {
-    $ResourceGroup = Read-Host "Enter ARO Resource Group name"
-}
-if (-not $ResourceGroup) {
-    Write-Error "Resource Group is required. Pass -ResourceGroup, set ARO_RESOURCE_GROUP, or enter interactively."
+    Write-Error "Resource Group is required."
     exit 1
 }
 
+$ClusterName = Read-Host "Enter ARO Cluster name"
 if (-not $ClusterName) {
-    $ClusterName = $env:ARO_CLUSTER_NAME
-}
-if (-not $ClusterName) {
-    $ClusterName = Read-Host "Enter ARO Cluster name"
-}
-if (-not $ClusterName) {
-    Write-Error "Cluster Name is required. Pass -ClusterName, set ARO_CLUSTER_NAME, or enter interactively."
+    Write-Error "Cluster Name is required."
     exit 1
 }
 
