@@ -3,34 +3,41 @@
     Securely authenticates to any ARO cluster without exposing tokens or credentials.
 
 .DESCRIPTION
-    Supports two authentication modes:
+    Supports two authentication paths:
 
-    1. Azure mode (default): Uses Azure CLI to retrieve kubeadmin credentials,
-       obtain an OAuth token, and configure kubeconfig automatically.
+    1. Subscription mode: Uses Azure CLI to look up the cluster by subscription,
+       resource group, and cluster name. Retrieves credentials automatically via
+       az aro list-credentials, exchanges them for an OAuth token, and configures
+       kubeconfig. No secrets are ever displayed.
 
-    2. Direct API mode (-Direct): Connects directly to the ARO API server using
-       oc login. No Azure subscription or Azure CLI required. Prompts for
-       API server URL, username, and password securely.
+    2. API Server mode (-Direct or interactive choice): Connects directly to the
+       ARO API server URL. Prompts for username and password securely.
+       No Azure subscription or Azure CLI required.
 
+    When run without parameters, the script asks which mode to use.
     Credentials are never printed, logged, or stored in shell history.
 
 .PARAMETER Direct
-    Switch to enable direct API server login mode (no Azure subscription needed).
+    Switch to skip the mode prompt and go straight to API Server login mode.
 
 .PARAMETER ApiServer
-    API server URL for direct login. Falls back to env var ARO_API_SERVER, then prompts.
+    API server URL. Can be used with or without -Direct. Falls back to env var ARO_API_SERVER, then prompts.
 
 .PARAMETER Username
-    Username for direct login. Falls back to env var ARO_USERNAME, then prompts.
+    Username for API Server login. Falls back to env var ARO_USERNAME, then prompts.
 
 .PARAMETER SubscriptionId
-    Azure subscription ID (Azure mode only). Falls back to env var AZURE_SUBSCRIPTION_ID, then prompts.
+    Azure subscription ID (Subscription mode). Falls back to env var AZURE_SUBSCRIPTION_ID, then prompts.
 
 .PARAMETER ResourceGroup
-    Resource group name (Azure mode only). Falls back to env var ARO_RESOURCE_GROUP, then prompts.
+    Resource group name (Subscription mode). Falls back to env var ARO_RESOURCE_GROUP, then prompts.
 
 .PARAMETER ClusterName
-    ARO cluster name (Azure mode only). Falls back to env var ARO_CLUSTER_NAME, then prompts.
+    ARO cluster name (Subscription mode). Falls back to env var ARO_CLUSTER_NAME, then prompts.
+
+.EXAMPLE
+    # Interactive — script asks which login mode to use
+    .\scripts\aro-login.ps1
 
 .EXAMPLE
     # Direct API login — prompts for credentials securely
@@ -47,15 +54,11 @@
     .\scripts\aro-login.ps1 -Direct
 
 .EXAMPLE
-    # Azure mode — interactive (prompts for all values)
-    .\scripts\aro-login.ps1
-
-.EXAMPLE
-    # Azure mode — fully parameterized
+    # Subscription mode — fully parameterized (non-interactive)
     .\scripts\aro-login.ps1 -SubscriptionId "xxxxxxxx-..." -ResourceGroup "my-rg" -ClusterName "my-aro"
 
 .EXAMPLE
-    # Azure mode — using environment variables
+    # Subscription mode — using environment variables
     $env:AZURE_SUBSCRIPTION_ID = "xxxxxxxx-..."
     $env:ARO_RESOURCE_GROUP = "my-rg"
     $env:ARO_CLUSTER_NAME = "my-aro"
@@ -85,10 +88,36 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# Direct API Server Login Mode (no Azure subscription needed)
+# Determine login mode: -Direct flag, parameters provided, or interactive choice
 # ============================================================================
+$useApiServerMode = $false
+
 if ($Direct) {
-    Write-Host "Direct API Server Login Mode" -ForegroundColor Cyan
+    $useApiServerMode = $true
+} elseif (-not $SubscriptionId -and -not $ResourceGroup -and -not $ClusterName -and -not $ApiServer `
+          -and -not $env:AZURE_SUBSCRIPTION_ID -and -not $env:ARO_RESOURCE_GROUP -and -not $env:ARO_CLUSTER_NAME -and -not $env:ARO_API_SERVER) {
+    # No parameters or env vars — ask the user
+    Write-Host ""
+    Write-Host "ARO Cluster Login" -ForegroundColor Cyan
+    Write-Host "  How would you like to connect?" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  [S] Subscription lookup  — provide subscription ID, resource group, and cluster name" -ForegroundColor Yellow
+    Write-Host "  [A] API Server direct    — provide the ARO API server URL (e.g., https://api.mycluster.eastus.aroapp.io:6443)" -ForegroundColor Yellow
+    Write-Host ""
+    $choice = Read-Host "Choose login mode [S/A] (default: S)"
+    if ($choice -match '^[Aa]') {
+        $useApiServerMode = $true
+    }
+} elseif ($ApiServer -and -not $SubscriptionId) {
+    # ApiServer provided without subscription — treat as direct mode
+    $useApiServerMode = $true
+}
+
+# ============================================================================
+# API Server Login Mode (direct connection, no Azure subscription needed)
+# ============================================================================
+if ($useApiServerMode) {
+    Write-Host "API Server Login Mode" -ForegroundColor Cyan
     Write-Host "  No Azure subscription required." -ForegroundColor Gray
     Write-Host ""
 
@@ -168,7 +197,7 @@ if ($Direct) {
 }
 
 # ============================================================================
-# Azure Mode (default) — uses Azure CLI to retrieve credentials
+# Subscription Mode — uses Azure CLI to look up cluster and retrieve credentials
 # ============================================================================
 
 # --- Resolve parameters from args, env vars, or interactive prompt ---
