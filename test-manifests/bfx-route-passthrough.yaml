@@ -1,0 +1,37 @@
+---
+# Fixed Route Configuration for WildFly EJB Remoting
+# Changes: edge → passthrough (allows HTTP Upgrade protocol end-to-end)
+# This route supports EJB over HTTP with proper /wildfly-services endpoint access
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: bfx-route
+  namespace: lastmile-system
+  annotations:
+    # HAProxy timeout for EJB handshake (increase from default 30s)
+    haproxy.router.openshift.io/timeout: "120s"
+    # Tunnel timeout for HTTP Upgrade protocol
+    haproxy.router.openshift.io/timeout-tunnel: "1h"
+spec:
+  # Route hostname
+  host: bfx-route-lastmile-system.apps.zkbl97wo.centralindia.aroapp.io
+  
+  # Backend service
+  to:
+    kind: Service
+    name: lastmile-bfx-bulkwire-app
+    weight: 100
+  
+  # Target service port
+  port:
+    targetPort: 8080
+  
+  # TLS Configuration - CRITICAL: passthrough allows HTTP Upgrade
+  tls:
+    termination: passthrough      # ✅ FIXED: was 'edge', now 'passthrough'
+                                   # Allows HTTP Upgrade headers to flow end-to-end
+                                   # Required for EJB remoting protocol (/wildfly-services)
+    insecureEdgeTerminationPolicy: Redirect
+  
+  # Wildcard policy
+  wildcardPolicy: None

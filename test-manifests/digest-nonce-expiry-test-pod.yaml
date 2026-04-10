@@ -1,0 +1,126 @@
+---
+# Caller pod that intentionally reuses expired DIGEST nonce to trigger "due to age" failure
+# Deployed in wildfly-route-test namespace alongside wildfly-app2
+# The failure will appear in wildfly-app2 pod logs with exact message:
+#   "rejected due to age ... being less than 0 or greater than the validity period"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: wildfly-route-test
+  name: nonce-expiry-caller-script
+data:
+  caller.sh: |
+    #!/bin/sh
+    set -e
+    
+    TARGET_HOST="wildfly-app2-mgmt-wildfly-route-test.apps.aromcpcluster.centralus.aroapp.io"
+    TARGET_URL="https://${TARGET_HOST}/management"
+    TEST_USER="admin"
+    TEST_PASS="Admin#123"
+    NONCE_VALIDITY_SECONDS=300
+    WAIT_SECONDS=310
+    
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] === DIGEST Nonce Expiry Test START ==="
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Target: ${TARGET_URL}"
+    
+    # Step 1: Obtain fresh nonce
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Fetching fresh nonce from server..."
+    CHALLENGE_RESPONSE=$(curl -k -s -i "${TARGET_URL}" 2>&1 | grep -i "www-authenticate:" || echo "")
+    
+    if [ -z "$CHALLENGE_RESPONSE" ]; then
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ERROR: No WWW-Authenticate header received"
+      sleep 3600
+      exit 1
+    fi
+    
+    # Extract nonce: nonce="value"
+    NONCE=$(echo "$CHALLENGE_RESPONSE" | sed -n 's/.*nonce="\([^"]*\)".*/\1/p')
+    
+    if [ -z "$NONCE" ]; then
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ERROR: Could not extract nonce"
+      echo "$CHALLENGE_RESPONSE"
+      sleep 3600
+      exit 1
+    fi
+    
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Extracted nonce (length: ${#NONCE})"
+    NONCE_OBTAINED_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    
+    # Step 2: Wait for expiry
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Waiting ${WAIT_SECONDS}s for nonce to expire (validity period: ${NONCE_VALIDITY_SECONDS}s)..."
+    for i in $(seq 1 $WAIT_SECONDS); do
+      REMAINING=$((WAIT_SECONDS - i))
+      if [ $((i % 30)) -eq 0 ] || [ $i -eq 1 ] || [ $REMAINING -le 5 ]; then
+        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)]   Wait: ${REMAINING}s remaining..."
+      fi
+      sleep 1
+    done
+    
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Nonce has aged ${WAIT_SECONDS}s (past ${NONCE_VALIDITY_SECONDS}s validity)"
+    
+    # Step 3: Craft DIGEST header with stale nonce
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Creating DIGEST Authorization with stale nonce..."
+    CNONCE="stale-nonce-test-12345"
+    NC="00000001"
+    REALM="ManagementRealm"
+    URI="/management"
+    ALGORITHM="MD5"
+    
+    # Compute DIGEST response hash
+    HA1=$(printf "%s:%s:%s" "$TEST_USER" "$REALM" "$TEST_PASS" | md5sum | cut -d' ' -f1)
+    HA2=$(printf "%s:%s" "GET" "$URI" | md5sum | cut -d' ' -f1)
+    RESPONSE=$(printf "%s:%s:%s:%s:%s:%s" "$HA1" "$NONCE" "$NC" "$CNONCE" "auth" "$HA2" | md5sum | cut -d' ' -f1)
+    
+    AUTH_HEADER="Digest username=\"${TEST_USER}\", realm=\"${REALM}\", nonce=\"${NONCE}\", uri=\"${URI}\", algorithm=${ALGORITHM}, response=\"${RESPONSE}\", qop=auth, nc=${NC}, cnonce=\"${CNONCE}\""
+    
+    # Step 4: Send request with expired nonce and capture response
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Sending GET request with expired nonce..."
+    HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" -H "Authorization: ${AUTH_HEADER}" "${TARGET_URL}" 2>&1 || true)
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Response HTTP code: ${HTTP_CODE}"
+    
+    # Step 5: Indicate test sent request - keep pod running for WildFly log inspection
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Request sent. Keeping pod alive for log inspection..."
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Check wildfly-app2 pod logs for 'rejected due to age' message"
+    sleep 3600
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: wildfly-route-test
+  name: digest-nonce-expiry-caller
+  labels:
+    app: digest-caller
+    test: nonce-expiry
+spec:
+  serviceAccountName: default
+  containers:
+  - name: curl-caller
+    image: curlimages/curl:8.4.0
+    imagePullPolicy: IfNotPresent
+    command:
+    - /bin/sh
+    - /scripts/caller.sh
+    volumeMounts:
+    - name: caller-script
+      mountPath: /scripts
+      readOnly: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 100
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+  volumes:
+  - name: caller-script
+    configMap:
+      name: nonce-expiry-caller-script
+      defaultMode: 0755
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 5
