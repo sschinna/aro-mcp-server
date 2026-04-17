@@ -347,6 +347,10 @@ The `aro-deploy/` directory contains a Bicep template for creating an ARO cluste
 
 ### Deploy an ARO Cluster
 
+#### Cluster Creation Demo Video
+
+https://github.com/sschinna/aro-mcp-server/releases/download/demo-videos/aro_cluster_creation_compressed.mp4
+
 ```bash
 # Set variables
 LOCATION=centralus
