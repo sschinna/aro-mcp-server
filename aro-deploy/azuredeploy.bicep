@@ -1,447 +1,431 @@
-@description('Location')
+// ARO Cluster Bicep Template — Platform Workload Identity (Managed Identity)
+// Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-preview
+//
+// This template uses Platform Workload Identity (no service principal needed).
+// Each named identity maps to a specific ARO operator role. ARO creates and
+// manages the federated credentials on these user-assigned managed identities.
+//
+// Prerequisites (run ONCE before deploying this template):
+//   az feature register --namespace Microsoft.RedHatOpenShift --name PlatformWorkloadIdentityPreview
+//   az provider register -n Microsoft.RedHatOpenShift
+
+targetScope = 'resourceGroup'
+
+// ── Parameters ───────────────────────────────────────────────────────────────
+
+@description('Azure region for all resources.')
 param location string = resourceGroup().location
 
-@description('Domain Prefix')
-param domain string = 'aromcpcluster'
+@description('Name of the ARO cluster.')
+param clusterName string
 
-@description('Version of the OpenShift cluster')
-param version string
+@description('OpenShift Container Platform version.')
+param clusterVersion string = '4.19.20'
 
-@description('Pull secret from cloud.redhat.com. The json should be input as a string')
+@description('Domain prefix for the cluster (used in API/console URLs).')
+param domain string = clusterName
+
+@description('Resource group where ARO places cluster infrastructure (VMs, LBs). Must differ from this RG and must NOT already exist.')
+param clusterResourceGroupId string
+
+@description('Pull secret from https://console.redhat.com/openshift/install/pull-secret. Optional.')
 @secure()
 param pullSecret string = ''
 
-@description('Name of vNet')
-param clusterVnetName string = 'aro-vnet'
-
-@description('vNet Address Space')
-param clusterVnetCidr string = '10.0.0.0/22'
-
-@description('Worker node subnet address space')
-param workerSubnetCidr string = '10.0.2.0/23'
-
-@description('Master node subnet address space')
-param masterSubnetCidr string = '10.0.0.0/23'
-
-@description('Master Node VM Type')
+@description('Master node VM size.')
 param masterVmSize string = 'Standard_D8s_v3'
 
-@description('Worker Node VM Type')
+@description('Worker node VM size.')
 param workerVmSize string = 'Standard_D4s_v3'
 
-@description('Worker Node Disk Size in GB')
+@description('Number of worker nodes (minimum 2).')
+@minValue(2)
+param workerCount int = 3
+
+@description('Worker node OS disk size in GB (minimum 128).')
 @minValue(128)
-param workerVmDiskSize int = 128
+param workerDiskSizeGB int = 128
 
-@description('Cidr for Pods')
-param podCidr string = '10.128.0.0/14'
-
-@metadata({
-  description: 'Cidr of service'
-})
-param serviceCidr string = '172.30.0.0/16'
-
-@description('Unique name for the cluster')
-param clusterName string
-
-@description('Api Server Visibility')
-@allowed([
-  'Private'
-  'Public'
-])
+@description('API server visibility.')
+@allowed(['Public', 'Private'])
 param apiServerVisibility string = 'Public'
 
-@description('Ingress Visibility')
-@allowed([
-  'Private'
-  'Public'
-])
+@description('Ingress visibility.')
+@allowed(['Public', 'Private'])
 param ingressVisibility string = 'Public'
 
-@description('The ObjectID of the Resource Provider Service Principal')
-param rpObjectId string
+@description('Pod CIDR. Must not overlap with VNet address space.')
+param podCidr string = '10.128.0.0/14'
 
-@description('Specify if FIPS validated crypto modules are used')
+@description('Service CIDR. Must not overlap with VNet address space.')
+param serviceCidr string = '172.30.0.0/16'
+
+@description('Tags to apply to all resources.')
+param tags object = {
+  environment: 'demo'
+  managedBy: 'bicep'
+  aroVersion: '4.19'
+}
+
+@description('Deployment mode: bootstrap creates identities/network/RBAC only, cluster creates cluster only, all does both in one run.')
 @allowed([
-  'Enabled'
-  'Disabled'
+  'bootstrap'
+  'cluster'
+  'all'
 ])
-param fips string = 'Disabled'
+param deploymentMode string = 'bootstrap'
 
-@description('Specify if master VMs are encrypted at host')
-@allowed([
-  'Enabled'
-  'Disabled'
-])
-param masterEncryptionAtHost string = 'Disabled'
+var deployBootstrap = contains([
+  'bootstrap'
+  'all'
+], deploymentMode)
+var deployCluster = contains([
+  'cluster'
+  'all'
+], deploymentMode)
 
-@description('Specify if worker VMs are encrypted at host')
-@allowed([
-  'Enabled'
-  'Disabled'
-])
-param workerEncryptionAtHost string = 'Disabled'
+// ── User-Assigned Managed Identities (Platform Workload Identity) ─────────────
+// ARO with workload identity requires one UAI per operator role.
 
-var resourceGroupId = '/subscriptions/${subscription().subscriptionId}/resourceGroups/aro-${domain}-${location}'
-var masterSubnetId = resourceId('Microsoft.Network/virtualNetworks/subnets', clusterVnetName, 'master')
-var workerSubnetId = resourceId('Microsoft.Network/virtualNetworks/subnets', clusterVnetName, 'worker')
+// Identity names must match exactly what ARO expects as keys in platformWorkloadIdentities.
+// Use 'aro-cluster-identity' (index 0) as the cluster-level UAI; the rest map 1:1 to ARO operator roles.
+var identityNames = [
+  'aro-cluster-identity'      // [0] cluster-level identity (attached to cluster resource)
+  'aro-operator'              // [1] aro-operator
+  'cloud-controller-manager'  // [2] cloud-controller-manager
+  'cloud-network-config'      // [3] cloud-network-config
+  'disk-csi-driver'           // [4] disk-csi-driver
+  'file-csi-driver'           // [5] file-csi-driver
+  'image-registry'            // [6] image-registry
+  'ingress'                   // [7] ingress
+  'machine-api'               // [8] machine-api
+]
 
-// Virtual network with master and worker subnets
-resource vnet 'Microsoft.Network/virtualNetworks@2023-06-01' = {
-  name: clusterVnetName
+var platformIdentityResourceIds = [
+  for name in identityNames: resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-${name}')
+]
+
+resource platformIdentities 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = [
+  for name in identityNames: if (deployBootstrap) {
+    name: '${clusterName}-${name}'
+    location: location
+    tags: tags
+  }
+]
+
+var clusterIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-aro-cluster-identity')
+var aroOperatorIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-aro-operator')
+var ccmIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-cloud-controller-manager')
+var cncIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-cloud-network-config')
+var diskCsiIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-disk-csi-driver')
+var fileCsiIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-file-csi-driver')
+var imageRegistryIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-image-registry')
+var ingressIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-ingress')
+var machineApiIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${clusterName}-machine-api')
+
+// ── Virtual Network ───────────────────────────────────────────────────────────
+
+resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = if (deployBootstrap) {
+  name: '${clusterName}-vnet'
   location: location
+  tags: tags
   properties: {
-    addressSpace: { addressPrefixes: [clusterVnetCidr] }
-    subnets: [
-      {
-        name: 'master'
-        properties: {
-          addressPrefixes: [masterSubnetCidr]
-          serviceEndpoints: [{ service: 'Microsoft.ContainerRegistry' }]
-        }
-      }
-      {
-        name: 'worker'
-        properties: {
-          addressPrefixes: [workerSubnetCidr]
-          serviceEndpoints: [{ service: 'Microsoft.ContainerRegistry' }]
-        }
-      }
+    addressSpace: {
+      addressPrefixes: ['10.0.0.0/8']
+    }
+  }
+}
+
+resource masterSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-09-01' = if (deployBootstrap) {
+  parent: vnet
+  name: 'master-subnet'
+  properties: {
+    addressPrefix: '10.0.0.0/23'
+    serviceEndpoints: [
+      { service: 'Microsoft.ContainerRegistry' }
+    ]
+    // Required by ARO: disable private link policies on master subnet
+    privateLinkServiceNetworkPolicies: 'Disabled'
+  }
+}
+
+resource workerSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-09-01' = if (deployBootstrap) {
+  parent: vnet
+  name: 'worker-subnet'
+  dependsOn: [masterSubnet]
+  properties: {
+    addressPrefix: '10.0.2.0/23'
+    serviceEndpoints: [
+      { service: 'Microsoft.ContainerRegistry' }
     ]
   }
 }
 
-resource workerSubnet 'Microsoft.Network/virtualNetworks/subnets@2020-08-01' existing = {
-  parent: vnet
-  name: 'worker'
-}
 
-resource masterSubnet 'Microsoft.Network/virtualNetworks/subnets@2020-08-01' existing = {
-  parent: vnet
-  name: 'master'
-}
+// ── Role Assignments ──────────────────────────────────────────────────────────
+// ARO validates that each platform workload identity has the required Azure roles
+// BEFORE it proceeds with cluster provisioning. Without these assignments the RP
+// returns InvalidPlatformWorkloadIdentity for the operator that is missing roles.
+//
+// Two sets of grants are required per operator UAI:
+//   1. The UAI's own Azure RBAC role (so it can do its job)
+//   2. Managed Identity Operator for the ARO RP SP (so ARO can federate the identity)
+//   3. Managed Identity Operator for the cluster identity (so the cluster can use operators)
 
-// User-assigned managed identities for each ARO operator + cluster identity
-resource cloudControllerManager 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'cloud-controller-manager'
-  location: location
-}
+var networkContributorRoleId  = '4d97b98b-1d4f-4787-a291-c67834d212e7'
+var contributorRoleId         = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+var storageBlobDataContribId  = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var managedIdentityOperatorId = 'f1a07417-d97a-45cb-824c-7a7467783830'
 
-resource ingress 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'ingress'
-  location: location
-}
+// ARO RP first-party service principal — object ID is tenant-specific
+// App ID f1dd0a37-89c6-4e07-bcd1-ffd3d43d8875 → object ID below
+var aroRpSpObjectId = '1679a87a-3db8-4d2a-af43-79d10ff9006c'
 
-resource machineApi 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'machine-api'
-  location: location
-}
-
-resource diskCsiDriver 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'disk-csi-driver'
-  location: location
-}
-
-resource cloudNetworkConfig 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'cloud-network-config'
-  location: location
-}
-
-resource imageRegistry 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'image-registry'
-  location: location
-}
-
-resource fileCsiDriver 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'file-csi-driver'
-  location: location
-}
-
-resource aroOperator 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'aro-operator'
-  location: location
-}
-
-resource clusterMsi 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'aro-cluster'
-  location: location
-}
-
-// Role assignments: operator identities -> subnets/vnet
-
-resource cloudControllerManagerMasterSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(masterSubnet.id, 'cloud-controller-manager')
-  scope: masterSubnet
-  properties: {
-    principalId: cloudControllerManager.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a1f96423-95ce-4224-ab27-4e3dc72facd4')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource cloudControllerManagerWorkerSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(workerSubnet.id, 'cloud-controller-manager')
-  scope: workerSubnet
-  properties: {
-    principalId: cloudControllerManager.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a1f96423-95ce-4224-ab27-4e3dc72facd4')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource ingressMasterSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(masterSubnet.id, 'ingress')
-  scope: masterSubnet
-  properties: {
-    principalId: ingress.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0336e1d3-7a87-462b-b6db-342b63f7802c')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource ingressWorkerSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(workerSubnet.id, 'ingress')
-  scope: workerSubnet
-  properties: {
-    principalId: ingress.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0336e1d3-7a87-462b-b6db-342b63f7802c')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource machineApiMasterSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(masterSubnet.id, 'machine-api')
-  scope: masterSubnet
-  properties: {
-    principalId: machineApi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0358943c-7e01-48ba-8889-02cc51d78637')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource machineApiWorkerSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(workerSubnet.id, 'machine-api')
-  scope: workerSubnet
-  properties: {
-    principalId: machineApi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0358943c-7e01-48ba-8889-02cc51d78637')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource cloudNetworkConfigVnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vnet.id, 'cloud-network-config')
+// ── Cluster identity: Network Contributor on VNet ─────────────────────────────
+resource clusterIdentityVnetRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(vnet.id, platformIdentityResourceIds[0], networkContributorRoleId)
   scope: vnet
   properties: {
-    principalId: cloudNetworkConfig.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'be7a6435-15ae-4171-8f30-4a343eff9e8f')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', networkContributorRoleId)
+    principalId: platformIdentities[0]!.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource fileCsiDriverVnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vnet.id, 'file-csi-driver')
+// ── ARO RP: Managed Identity Operator on ALL UAIs (indices 1-8) ───────────────
+// ARO RP must be able to read and federate each operator identity.
+resource aroRpMioRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for i in range(1, 8): if (deployBootstrap) {
+    name: guid(platformIdentityResourceIds[i], aroRpSpObjectId, managedIdentityOperatorId)
+    scope: platformIdentities[i]!
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', managedIdentityOperatorId)
+      principalId: aroRpSpObjectId
+      principalType: 'ServicePrincipal'
+    }
+  }
+]
+
+// ── Reliability hardening: RG-scope MIO grants ───────────────────────────────
+// In some subscriptions, ARM can report role assignment success while effective
+// permissions are still propagating per-identity. Adding RG-scope MIO reduces
+// repeated ARO validation failures (InvalidClusterMSIPermissions) during create.
+resource clusterIdentityRgMioRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[0], managedIdentityOperatorId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', managedIdentityOperatorId)
+    principalId: platformIdentities[0]!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource aroRpRgMioRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, aroRpSpObjectId, managedIdentityOperatorId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', managedIdentityOperatorId)
+    principalId: aroRpSpObjectId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ── Cluster identity: Managed Identity Operator on ALL operator UAIs ──────────
+// The cluster identity must be able to assume each operator identity.
+resource clusterIdentityMioRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for i in range(1, 8): if (deployBootstrap) {
+    name: guid(platformIdentityResourceIds[i], platformIdentityResourceIds[0], managedIdentityOperatorId)
+    scope: platformIdentities[i]!
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', managedIdentityOperatorId)
+      principalId: platformIdentities[0]!.properties.principalId
+      principalType: 'ServicePrincipal'
+    }
+  }
+]
+
+// ── Operator-specific Azure RBAC roles ───────────────────────────────────────
+
+// [1] aro-operator — Contributor on resource group
+resource aroOperatorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[1], contributorRoleId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
+    principalId: platformIdentities[1]!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// [2] cloud-controller-manager — Contributor on resource group (manages LBs, public IPs)
+resource ccmRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[2], contributorRoleId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
+    principalId: platformIdentities[2]!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// [3] cloud-network-config — Network Contributor on VNet
+resource cloudNetworkConfigRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(vnet.id, platformIdentityResourceIds[3], networkContributorRoleId)
   scope: vnet
   properties: {
-    principalId: fileCsiDriver.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0d7aedc0-15fd-4a67-a412-efad370c947e')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', networkContributorRoleId)
+    principalId: platformIdentities[3]!.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource imageRegistryVnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vnet.id, 'image-registry')
+// [4] disk-csi-driver — Contributor on resource group (creates/attaches managed disks)
+resource diskCsiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[4], contributorRoleId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
+    principalId: platformIdentities[4]!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// [5] file-csi-driver — Contributor on resource group (creates storage accounts + file shares)
+resource fileCsiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[5], contributorRoleId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
+    principalId: platformIdentities[5]!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// [6] image-registry — Storage Blob Data Contributor (reads/writes registry blobs)
+resource imageRegistryRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[6], storageBlobDataContribId)
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContribId)
+    principalId: platformIdentities[6]!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// [7] ingress — Network Contributor on VNet (manages ingress routes + load balancer)
+resource ingressRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(vnet.id, platformIdentityResourceIds[7], networkContributorRoleId)
   scope: vnet
   properties: {
-    principalId: imageRegistry.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8b32b316-c2f5-4ddf-b05b-83dacd2d08b5')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', networkContributorRoleId)
+    principalId: platformIdentities[7]!.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource aroOperatorMasterSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(masterSubnet.id, 'aro-operator')
-  scope: masterSubnet
+// [8] machine-api — Contributor on resource group (creates/deletes VMs for node scaling)
+resource machineApiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployBootstrap) {
+  name: guid(resourceGroup().id, platformIdentityResourceIds[8], contributorRoleId)
+  scope: resourceGroup()
   properties: {
-    principalId: aroOperator.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4436bae4-7702-4c84-919b-c4069ff25ee2')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
+    principalId: platformIdentities[8]!.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource aroOperatorWorkerSubnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(workerSubnet.id, 'aro-operator')
-  scope: workerSubnet
-  properties: {
-    principalId: aroOperator.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4436bae4-7702-4c84-919b-c4069ff25ee2')
-    principalType: 'ServicePrincipal'
-  }
-}
+// ── ARO Cluster ───────────────────────────────────────────────────────────────
 
-// Role assignments: cluster MSI -> each operator identity (Managed Identity Operator)
-
-resource clusterMsiRoleAssignmentCloudControllerManager 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(cloudControllerManager.id, 'cluster')
-  scope: cloudControllerManager
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentIngress 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(ingress.id, 'cluster')
-  scope: ingress
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentMachineApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(machineApi.id, 'cluster')
-  scope: machineApi
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentDiskCsiDriver 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(diskCsiDriver.id, 'cluster')
-  scope: diskCsiDriver
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentCloudNetworkConfig 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(cloudNetworkConfig.id, 'cluster')
-  scope: cloudNetworkConfig
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentCloudImageRegistry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(imageRegistry.id, 'cluster')
-  scope: imageRegistry
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentCloudFileCsiDriver 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(fileCsiDriver.id, 'cluster')
-  scope: fileCsiDriver
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource clusterMsiRoleAssignmentCloudAroOperator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(aroOperator.id, 'cluster')
-  scope: aroOperator
-  properties: {
-    principalId: clusterMsi.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ef318e2a-8334-4a05-9e4a-295a196c6a6e')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// First-party RP role assignment over the VNet
-resource fpspRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(vnet.id, rpObjectId)
-  scope: vnet
-  properties: {
-    principalId: rpObjectId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '42f3c60f-e7b1-46d7-ba56-6de681664342')
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// ARO cluster with managed identity (no service principal needed)
-resource cluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-preview' = {
+resource aroCluster 'Microsoft.RedHatOpenShift/openShiftClusters@2024-08-12-preview' = if (deployCluster) {
   name: clusterName
   location: location
+  tags: tags
+  // Cluster-level user-assigned managed identity
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${clusterIdentityResourceId}': {}
+    }
+  }
   properties: {
     clusterProfile: {
       domain: domain
-      #disable-next-line use-resource-id-functions
-      resourceGroupId: resourceGroupId
-      version: version
-      fipsValidatedModules: fips
-      pullSecret: pullSecret
+      version: clusterVersion
+      resourceGroupId: clusterResourceGroupId
+      pullSecret: pullSecret == '' ? null : pullSecret
+      fipsValidatedModules: 'Disabled'
+      // oidcIssuer is managed/set by ARO for workload identity clusters; omit here
     }
-    networkProfile: { podCidr: podCidr, serviceCidr: serviceCidr }
+    networkProfile: {
+      podCidr: podCidr
+      serviceCidr: serviceCidr
+      outboundType: 'Loadbalancer'
+    }
+    // No servicePrincipalProfile — using platformWorkloadIdentityProfile instead
+    platformWorkloadIdentityProfile: {
+      platformWorkloadIdentities: {
+        'aro-operator':             { resourceId: aroOperatorIdentityResourceId }
+        'cloud-controller-manager': { resourceId: ccmIdentityResourceId }
+        'cloud-network-config':     { resourceId: cncIdentityResourceId }
+        'disk-csi-driver':          { resourceId: diskCsiIdentityResourceId }
+        'file-csi-driver':          { resourceId: fileCsiIdentityResourceId }
+        'image-registry':           { resourceId: imageRegistryIdentityResourceId }
+        ingress:                    { resourceId: ingressIdentityResourceId }
+        'machine-api':              { resourceId: machineApiIdentityResourceId }
+      }
+    }
     masterProfile: {
       vmSize: masterVmSize
-      subnetId: masterSubnetId
-      encryptionAtHost: masterEncryptionAtHost
+      subnetId: resourceId('Microsoft.Network/virtualNetworks/subnets', '${clusterName}-vnet', 'master-subnet')
+      encryptionAtHost: 'Disabled'
     }
     workerProfiles: [
       {
         name: 'worker'
-        count: 3
-        diskSizeGB: workerVmDiskSize
         vmSize: workerVmSize
-        subnetId: workerSubnetId
-        encryptionAtHost: workerEncryptionAtHost
+        diskSizeGB: workerDiskSizeGB
+        subnetId: resourceId('Microsoft.Network/virtualNetworks/subnets', '${clusterName}-vnet', 'worker-subnet')
+        count: workerCount
+        encryptionAtHost: 'Disabled'
       }
     ]
-    apiserverProfile: { visibility: apiServerVisibility }
-    ingressProfiles: [{ name: 'default', visibility: ingressVisibility }]
-    platformWorkloadIdentityProfile: {
-      platformWorkloadIdentities: {
-        'cloud-controller-manager': { resourceId: cloudControllerManager.id }
-        ingress: { resourceId: ingress.id }
-        'machine-api': { resourceId: machineApi.id }
-        'disk-csi-driver': { resourceId: diskCsiDriver.id }
-        'cloud-network-config': { resourceId: cloudNetworkConfig.id }
-        'image-registry': { resourceId: imageRegistry.id }
-        'file-csi-driver': { resourceId: fileCsiDriver.id }
-        'aro-operator': { resourceId: aroOperator.id }
+    apiserverProfile: {
+      visibility: apiServerVisibility
+    }
+    ingressProfiles: [
+      {
+        name: 'default'
+        visibility: ingressVisibility
       }
-    }
-  }
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${clusterMsi.id}': {}
-    }
+    ]
   }
   dependsOn: [
-    cloudControllerManagerMasterSubnetRoleAssignment
-    cloudControllerManagerWorkerSubnetRoleAssignment
-    ingressMasterSubnetRoleAssignment
-    ingressWorkerSubnetRoleAssignment
-    machineApiMasterSubnetRoleAssignment
-    machineApiWorkerSubnetRoleAssignment
-    cloudNetworkConfigVnetRoleAssignment
-    fileCsiDriverVnetRoleAssignment
-    imageRegistryVnetRoleAssignment
-    aroOperatorMasterSubnetRoleAssignment
-    aroOperatorWorkerSubnetRoleAssignment
-    clusterMsiRoleAssignmentCloudControllerManager
-    clusterMsiRoleAssignmentIngress
-    clusterMsiRoleAssignmentMachineApi
-    clusterMsiRoleAssignmentDiskCsiDriver
-    clusterMsiRoleAssignmentCloudNetworkConfig
-    clusterMsiRoleAssignmentCloudImageRegistry
-    clusterMsiRoleAssignmentCloudFileCsiDriver
-    clusterMsiRoleAssignmentCloudAroOperator
-    fpspRoleAssignment
+    clusterIdentityVnetRole
+    aroRpMioRoles
+    clusterIdentityMioRoles
+    clusterIdentityRgMioRole
+    aroRpRgMioRole
+    aroOperatorRole
+    ccmRole
+    cloudNetworkConfigRole
+    diskCsiRole
+    fileCsiRole
+    imageRegistryRole
+    ingressRole
+    machineApiRole
   ]
 }
+
+// ── Outputs ───────────────────────────────────────────────────────────────────
+
+@description('ARO cluster resource ID.')
+output clusterId string = deployCluster ? aroCluster.id : ''
+
+@description('ARO console URL.')
+output consoleUrl string = deployCluster ? aroCluster!.properties.consoleProfile.url : ''
+
+@description('ARO API server URL.')
+output apiServerUrl string = deployCluster ? aroCluster!.properties.apiserverProfile.url : ''
+
+@description('Cluster identity resource ID.')
+output clusterIdentityId string = clusterIdentityResourceId
