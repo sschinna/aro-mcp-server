@@ -197,6 +197,67 @@ oc get clusterversion
 2. Click the **Tools icon** (wrench) to verify `aro_cluster_get` is listed
 3. Ask a question about your ARO clusters
 
+## Teammate Onboarding (Quick Start)
+
+If a teammate clones this repo, here's the minimal checklist to get everything working:
+
+### Step-by-step
+
+1. **Install .NET 10 SDK**
+   ```bash
+   # Verify: dotnet --version should show 10.x
+   ```
+
+2. **Install Azure CLI and authenticate**
+   ```bash
+   az account clear                              # one-time fix for Windows token cache
+   az config set core.enable_broker_on_windows=false  # one-time fix for Windows
+   az login
+   az account set --subscription <SUBSCRIPTION_ID>
+   ```
+
+3. **Build the MCP server plugin**
+   ```bash
+   cd aro-mcp-server
+   dotnet build tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj
+   ```
+
+4. **Install the Azure MCP runtime** — Place `azmcp.exe` in `~/.aro-mcp/`:
+   ```powershell
+   # Option A: Install via .NET global tool
+   dotnet tool install --global Azure.Mcp
+
+   # Option B: Copy a pre-built binary
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\.aro-mcp"
+   Copy-Item /path/to/azmcp.exe "$env:USERPROFILE\.aro-mcp\"
+   ```
+
+5. **Open the workspace in VS Code** — `.vscode/mcp.json` auto-registers the server. No manual config needed.
+
+6. **Login to your ARO cluster**
+   ```powershell
+   .\scripts\aro-login.ps1
+   ```
+
+7. **(Optional) Configure Azure OpenAI for AI tools** — Only needed for `aro_cluster_diagnose` and `aro_cluster_summarize`:
+   ```powershell
+   $env:AZURE_OPENAI_ENDPOINT = "https://<your-resource>.openai.azure.com/"
+   $env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+   ```
+   Your identity also needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
+
+### What works out of the box vs. what doesn't
+
+| Component | Portable? | Notes |
+|---|---|---|
+| Source code & build | ✅ Yes | Standard .NET project, no hardcoded paths |
+| `.vscode/mcp.json` | ✅ Yes | Uses `azmcp` from PATH or `~/.aro-mcp/` (via `$(USERPROFILE)`) |
+| Azure authentication | ✅ Yes | `DefaultAzureCredential` — works with any user's `az login` |
+| `azmcp.exe` runtime | ⚠️ Manual | Must be installed per-user (see step 4) |
+| ARO cluster access | ⚠️ Manual | Each user needs `az login` + RBAC on the subscription |
+| Azure OpenAI (AI tools) | ⚠️ Optional | Env vars + role assignment needed (see step 7) |
+| `obj/` build artifacts | ✅ Gitignored | User-specific NuGet paths in `obj/` are not committed |
+
 ## Usage Examples
 
 ### With Copilot (Agent Mode)
