@@ -9,6 +9,7 @@ public static class AroOptionDefinitions
     public const string AllowSubscriptionEnumerationName = "allow-subscription-enumeration";
     public const string ProviderName = "provider";
     public const string TopicName = "topic";
+    public const string QuestionName = "question";
 
     public static readonly Option<string> Cluster = new($"--{ClusterName}")
     {
@@ -28,5 +29,10 @@ public static class AroOptionDefinitions
     public static readonly Option<string> Topic = new($"--{TopicName}")
     {
         Description = "Optional topic keyword filter (for example: networking, ingress, troubleshooting, install, security).",
+    };
+
+    public static readonly Option<string> Question = new($"--{QuestionName}")
+    {
+        Description = "The diagnostic question or issue description to analyze for the ARO cluster.",
     };
 }

@@ -18,8 +18,11 @@ public class AroSetup : IAreaSetup
     public void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IAroService, AroService>();
+        services.AddSingleton<ILlmService, LlmService>();
 
         services.AddSingleton<ClusterGetCommand>();
+        services.AddSingleton<ClusterDiagnoseCommand>();
+        services.AddSingleton<ClusterSummarizeCommand>();
         services.AddSingleton<DocumentationListCommand>();
     }
 
@@ -35,6 +38,12 @@ public class AroSetup : IAreaSetup
 
         var clusterGet = serviceProvider.GetRequiredService<ClusterGetCommand>();
         cluster.AddCommand(clusterGet.Name, clusterGet);
+
+        var clusterDiagnose = serviceProvider.GetRequiredService<ClusterDiagnoseCommand>();
+        cluster.AddCommand(clusterDiagnose.Name, clusterDiagnose);
+
+        var clusterSummarize = serviceProvider.GetRequiredService<ClusterSummarizeCommand>();
+        cluster.AddCommand(clusterSummarize.Name, clusterSummarize);
 
         var documentationList = serviceProvider.GetRequiredService<DocumentationListCommand>();
         documentation.AddCommand(documentationList.Name, documentationList);

@@ -1,0 +1,562 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "17234927534052672297"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "clusterName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the ARO cluster."
+      }
+    },
+    "clusterVersion": {
+      "type": "string",
+      "defaultValue": "4.19.20",
+      "metadata": {
+        "description": "OpenShift Container Platform version."
+      }
+    },
+    "domain": {
+      "type": "string",
+      "defaultValue": "[parameters('clusterName')]",
+      "metadata": {
+        "description": "Domain prefix for the cluster (used in API/console URLs)."
+      }
+    },
+    "clusterResourceGroupId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource group where ARO places cluster infrastructure (VMs, LBs). Must differ from this RG and must NOT already exist."
+      }
+    },
+    "pullSecret": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Pull secret from https://console.redhat.com/openshift/install/pull-secret. Optional."
+      }
+    },
+    "masterVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D8s_v3",
+      "metadata": {
+        "description": "Master node VM size."
+      }
+    },
+    "workerVmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D4s_v3",
+      "metadata": {
+        "description": "Worker node VM size."
+      }
+    },
+    "workerCount": {
+      "type": "int",
+      "defaultValue": 3,
+      "minValue": 2,
+      "metadata": {
+        "description": "Number of worker nodes (minimum 2)."
+      }
+    },
+    "workerDiskSizeGB": {
+      "type": "int",
+      "defaultValue": 128,
+      "minValue": 128,
+      "metadata": {
+        "description": "Worker node OS disk size in GB (minimum 128)."
+      }
+    },
+    "apiServerVisibility": {
+      "type": "string",
+      "defaultValue": "Public",
+      "allowedValues": [
+        "Public",
+        "Private"
+      ],
+      "metadata": {
+        "description": "API server visibility."
+      }
+    },
+    "ingressVisibility": {
+      "type": "string",
+      "defaultValue": "Public",
+      "allowedValues": [
+        "Public",
+        "Private"
+      ],
+      "metadata": {
+        "description": "Ingress visibility."
+      }
+    },
+    "podCidr": {
+      "type": "string",
+      "defaultValue": "10.128.0.0/14",
+      "metadata": {
+        "description": "Pod CIDR. Must not overlap with VNet address space."
+      }
+    },
+    "serviceCidr": {
+      "type": "string",
+      "defaultValue": "172.30.0.0/16",
+      "metadata": {
+        "description": "Service CIDR. Must not overlap with VNet address space."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "environment": "demo",
+        "managedBy": "bicep",
+        "aroVersion": "4.19"
+      },
+      "metadata": {
+        "description": "Tags to apply to all resources."
+      }
+    },
+    "deploymentMode": {
+      "type": "string",
+      "defaultValue": "bootstrap",
+      "allowedValues": [
+        "bootstrap",
+        "cluster",
+        "all"
+      ],
+      "metadata": {
+        "description": "Deployment mode: bootstrap creates identities/network/RBAC only, cluster creates cluster only, all does both in one run."
+      }
+    }
+  },
+  "variables": {
+    "copy": [
+      {
+        "name": "platformIdentityResourceIds",
+        "count": "[length(variables('identityNames'))]",
+        "input": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[copyIndex('platformIdentityResourceIds')]))]"
+      }
+    ],
+    "deployBootstrap": "[contains(createArray('bootstrap', 'all'), parameters('deploymentMode'))]",
+    "deployCluster": "[contains(createArray('cluster', 'all'), parameters('deploymentMode'))]",
+    "identityNames": [
+      "aro-cluster-identity",
+      "aro-operator",
+      "cloud-controller-manager",
+      "cloud-network-config",
+      "disk-csi-driver",
+      "file-csi-driver",
+      "image-registry",
+      "ingress",
+      "machine-api"
+    ],
+    "clusterIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-aro-cluster-identity', parameters('clusterName')))]",
+    "aroOperatorIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-aro-operator', parameters('clusterName')))]",
+    "ccmIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-cloud-controller-manager', parameters('clusterName')))]",
+    "cncIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-cloud-network-config', parameters('clusterName')))]",
+    "diskCsiIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-disk-csi-driver', parameters('clusterName')))]",
+    "fileCsiIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-file-csi-driver', parameters('clusterName')))]",
+    "imageRegistryIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-image-registry', parameters('clusterName')))]",
+    "ingressIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-ingress', parameters('clusterName')))]",
+    "machineApiIdentityResourceId": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-machine-api', parameters('clusterName')))]",
+    "networkContributorRoleId": "4d97b98b-1d4f-4787-a291-c67834d212e7",
+    "contributorRoleId": "b24988ac-6180-42a0-ab88-20f7382dd24c",
+    "storageBlobDataContribId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "managedIdentityOperatorId": "f1a07417-d97a-45cb-824c-7a7467783830",
+    "aroRpSpObjectId": "1679a87a-3db8-4d2a-af43-79d10ff9006c"
+  },
+  "resources": [
+    {
+      "copy": {
+        "name": "platformIdentities",
+        "count": "[length(variables('identityNames'))]"
+      },
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[format('{0}-{1}', parameters('clusterName'), variables('identityNames')[copyIndex()])]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]"
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-09-01",
+      "name": "[format('{0}-vnet', parameters('clusterName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/8"
+          ]
+        }
+      }
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "apiVersion": "2023-09-01",
+      "name": "[format('{0}/{1}', format('{0}-vnet', parameters('clusterName')), 'master-subnet')]",
+      "properties": {
+        "addressPrefix": "10.0.0.0/23",
+        "serviceEndpoints": [
+          {
+            "service": "Microsoft.ContainerRegistry"
+          }
+        ],
+        "privateLinkServiceNetworkPolicies": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "apiVersion": "2023-09-01",
+      "name": "[format('{0}/{1}', format('{0}-vnet', parameters('clusterName')), 'worker-subnet')]",
+      "properties": {
+        "addressPrefix": "10.0.2.0/23",
+        "serviceEndpoints": [
+          {
+            "service": "Microsoft.ContainerRegistry"
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('{0}-vnet', parameters('clusterName')), 'master-subnet')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]",
+      "name": "[guid(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), variables('platformIdentityResourceIds')[0], variables('networkContributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('networkContributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[0])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[0]))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "aroRpMioRoles",
+        "count": "[length(range(1, 8))]"
+      },
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(variables('platformIdentityResourceIds')[range(1, 8)[copyIndex()]], variables('aroRpSpObjectId'), variables('managedIdentityOperatorId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('managedIdentityOperatorId'))]",
+        "principalId": "[variables('aroRpSpObjectId')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[range(1, 8)[copyIndex()]]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[0], variables('managedIdentityOperatorId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('managedIdentityOperatorId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[0])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[0]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('aroRpSpObjectId'), variables('managedIdentityOperatorId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('managedIdentityOperatorId'))]",
+        "principalId": "[variables('aroRpSpObjectId')]",
+        "principalType": "ServicePrincipal"
+      }
+    },
+    {
+      "copy": {
+        "name": "clusterIdentityMioRoles",
+        "count": "[length(range(1, 8))]"
+      },
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(variables('platformIdentityResourceIds')[range(1, 8)[copyIndex()]], variables('platformIdentityResourceIds')[0], variables('managedIdentityOperatorId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('managedIdentityOperatorId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[0])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[0]))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[range(1, 8)[copyIndex()]]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[1], variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[1])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[1]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[2], variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[2])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[2]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]",
+      "name": "[guid(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), variables('platformIdentityResourceIds')[3], variables('networkContributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('networkContributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[3])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[3]))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[4], variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[4])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[4]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[5], variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[5])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[5]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[6], variables('storageBlobDataContribId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContribId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[6])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[6]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]",
+      "name": "[guid(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), variables('platformIdentityResourceIds')[7], variables('networkContributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('networkContributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[7])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[7]))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName')))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployBootstrap')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('platformIdentityResourceIds')[8], variables('contributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[8])), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-{1}', parameters('clusterName'), variables('identityNames')[8]))]"
+      ]
+    },
+    {
+      "condition": "[variables('deployCluster')]",
+      "type": "Microsoft.RedHatOpenShift/openShiftClusters",
+      "apiVersion": "2024-08-12-preview",
+      "name": "[parameters('clusterName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', variables('clusterIdentityResourceId'))]": {}
+        }
+      },
+      "properties": {
+        "clusterProfile": {
+          "domain": "[parameters('domain')]",
+          "version": "[parameters('clusterVersion')]",
+          "resourceGroupId": "[parameters('clusterResourceGroupId')]",
+          "pullSecret": "[if(equals(parameters('pullSecret'), ''), null(), parameters('pullSecret'))]",
+          "fipsValidatedModules": "Disabled"
+        },
+        "networkProfile": {
+          "podCidr": "[parameters('podCidr')]",
+          "serviceCidr": "[parameters('serviceCidr')]",
+          "outboundType": "Loadbalancer"
+        },
+        "platformWorkloadIdentityProfile": {
+          "platformWorkloadIdentities": {
+            "aro-operator": {
+              "resourceId": "[variables('aroOperatorIdentityResourceId')]"
+            },
+            "cloud-controller-manager": {
+              "resourceId": "[variables('ccmIdentityResourceId')]"
+            },
+            "cloud-network-config": {
+              "resourceId": "[variables('cncIdentityResourceId')]"
+            },
+            "disk-csi-driver": {
+              "resourceId": "[variables('diskCsiIdentityResourceId')]"
+            },
+            "file-csi-driver": {
+              "resourceId": "[variables('fileCsiIdentityResourceId')]"
+            },
+            "image-registry": {
+              "resourceId": "[variables('imageRegistryIdentityResourceId')]"
+            },
+            "ingress": {
+              "resourceId": "[variables('ingressIdentityResourceId')]"
+            },
+            "machine-api": {
+              "resourceId": "[variables('machineApiIdentityResourceId')]"
+            }
+          }
+        },
+        "masterProfile": {
+          "vmSize": "[parameters('masterVmSize')]",
+          "subnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('{0}-vnet', parameters('clusterName')), 'master-subnet')]",
+          "encryptionAtHost": "Disabled"
+        },
+        "workerProfiles": [
+          {
+            "name": "worker",
+            "vmSize": "[parameters('workerVmSize')]",
+            "diskSizeGB": "[parameters('workerDiskSizeGB')]",
+            "subnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('{0}-vnet', parameters('clusterName')), 'worker-subnet')]",
+            "count": "[parameters('workerCount')]",
+            "encryptionAtHost": "Disabled"
+          }
+        ],
+        "apiserverProfile": {
+          "visibility": "[parameters('apiServerVisibility')]"
+        },
+        "ingressProfiles": [
+          {
+            "name": "default",
+            "visibility": "[parameters('ingressVisibility')]"
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[1], variables('contributorRoleId')))]",
+        "aroRpMioRoles",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('aroRpSpObjectId'), variables('managedIdentityOperatorId')))]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[2], variables('contributorRoleId')))]",
+        "[extensionResourceId(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), variables('platformIdentityResourceIds')[3], variables('networkContributorRoleId')))]",
+        "clusterIdentityMioRoles",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[0], variables('managedIdentityOperatorId')))]",
+        "[extensionResourceId(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), variables('platformIdentityResourceIds')[0], variables('networkContributorRoleId')))]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[4], variables('contributorRoleId')))]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[5], variables('contributorRoleId')))]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[6], variables('storageBlobDataContribId')))]",
+        "[extensionResourceId(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('clusterName'))), variables('platformIdentityResourceIds')[7], variables('networkContributorRoleId')))]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('platformIdentityResourceIds')[8], variables('contributorRoleId')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "clusterId": {
+      "type": "string",
+      "metadata": {
+        "description": "ARO cluster resource ID."
+      },
+      "value": "[if(variables('deployCluster'), resourceId('Microsoft.RedHatOpenShift/openShiftClusters', parameters('clusterName')), '')]"
+    },
+    "consoleUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "ARO console URL."
+      },
+      "value": "[if(variables('deployCluster'), reference(resourceId('Microsoft.RedHatOpenShift/openShiftClusters', parameters('clusterName')), '2024-08-12-preview').consoleProfile.url, '')]"
+    },
+    "apiServerUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "ARO API server URL."
+      },
+      "value": "[if(variables('deployCluster'), reference(resourceId('Microsoft.RedHatOpenShift/openShiftClusters', parameters('clusterName')), '2024-08-12-preview').apiserverProfile.url, '')]"
+    },
+    "clusterIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Cluster identity resource ID."
+      },
+      "value": "[variables('clusterIdentityResourceId')]"
+    }
+  }
+}

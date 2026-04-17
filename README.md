@@ -17,12 +17,15 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 | Tool | Description |
 |---|---|
 | `aro_cluster_get` | List all ARO clusters in a subscription, or get details of a specific cluster (profiles, networking, API server, worker nodes, provisioning state) |
+| `aro_cluster_diagnose` | AI-powered diagnosis of ARO cluster issues using Azure OpenAI — sends cluster data and your question to GPT-4o for expert analysis |
+| `aro_cluster_summarize` | AI-powered cluster summary — generates a health assessment, configuration overview, and recommendations using Azure OpenAI |
 
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login` authenticated)
 - [VS Code](https://code.visualstudio.com/) with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension
+- [Azure OpenAI](https://learn.microsoft.com/azure/ai-services/openai/) resource with a GPT-4o deployment (for diagnose/summarize tools)
 - An Azure subscription with the `Microsoft.RedHatOpenShift` resource provider registered
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) or [oc CLI](https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/) for cluster operations
 - The pre-built `azmcp.exe` binary (see [Setup](#setup) below)
@@ -166,6 +169,17 @@ What the Azure mode script does:
 6. Clears all sensitive data from memory
 
 **Requirements:** Azure CLI (`az`), `kubectl`, an Azure subscription with access to the ARO cluster.
+
+### Azure OpenAI Configuration (for AI Tools)
+
+The `aro_cluster_diagnose` and `aro_cluster_summarize` tools require Azure OpenAI. Set these environment variables:
+
+```powershell
+$env:AZURE_OPENAI_ENDPOINT = "https://your-resource.openai.azure.com/"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"  # Your model deployment name
+```
+
+Authentication uses `DefaultAzureCredential` (Azure CLI, Managed Identity, etc.). Ensure your identity has the **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
 
 #### After login (either mode)
 

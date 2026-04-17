@@ -9,6 +9,8 @@ using Azure.Mcp.Tools.Aro.Services;
 namespace Azure.Mcp.Tools.Aro.Commands;
 
 [JsonSerializable(typeof(ClusterGetCommand.ClusterGetCommandResult))]
+[JsonSerializable(typeof(ClusterDiagnoseCommand.ClusterDiagnoseCommandResult))]
+[JsonSerializable(typeof(ClusterSummarizeCommand.ClusterSummarizeCommandResult))]
 [JsonSerializable(typeof(DocumentationListCommand.DocumentationListCommandResult))]
 [JsonSerializable(typeof(Models.PublicDocument))]
 [JsonSerializable(typeof(Models.Cluster))]
