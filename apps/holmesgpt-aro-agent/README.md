@@ -7,6 +7,9 @@ It provides:
 - `GET /operations/{id}`: poll long-running operation status
 - Bearer token auth for every operation endpoint
 - Read-only by default, with optional guarded update actions
+- Azure OpenAI synthesis for findings summary (when configured)
+- SQLite-backed conversation persistence by `conversation_id`
+- ARO context wiring (`subscription`, `resource-group`, `cluster`, `namespace`)
 
 ## Why this scaffold
 
@@ -50,13 +53,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8090 --reload
 curl -X POST "http://localhost:8090/ask" \
   -H "Authorization: Bearer <APP_AUTH_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"question":"Why are pods crashing in my ARO cluster?"}'
+  -d '{
+    "question":"Why are pods crashing in my ARO cluster?",
+    "subscription_id":"<sub-id>",
+    "resource_group":"<rg>",
+    "cluster_name":"<cluster>",
+    "namespace":"lastmile-system"
+  }'
 ```
 
 ```bash
 curl -X GET "http://localhost:8090/operations/<operation-id>" \
   -H "Authorization: Bearer <APP_AUTH_TOKEN>"
 ```
+
+Response from `POST /ask` includes a `conversation_id` that can be reused on later `POST /ask` calls.
 
 ## Security notes
 
@@ -66,9 +77,13 @@ curl -X GET "http://localhost:8090/operations/<operation-id>" \
   - approval token in request
 - This scaffold avoids passing raw infrastructure credentials to model prompts.
 
+## Conversation persistence
+
+- Stored in SQLite at `CONVERSATION_DB_PATH` (default `./data/holmesgpt_aro.db`)
+- Saves user and assistant turns for multi-turn continuity
+- Latest conversation turns are forwarded into AOAI synthesis context
+
 ## Next steps
 
-- Add Azure OpenAI prompt orchestration for richer analysis summaries
-- Replace in-memory operation store with durable storage
-- Add ARO-specific tool parameters (`subscription`, `resource-group`, `cluster`)
+- Replace in-memory operation store with durable distributed storage
 - Add streaming and richer multi-turn conversation state (Phase 2)

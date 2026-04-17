@@ -41,3 +41,24 @@ def classify_tools(question: str) -> tuple[list[str], list[str]]:
         update = ["k8s_rollout_restart"]
 
     return read, update
+
+
+def build_tool_payload(
+    question: str,
+    subscription_id: str | None,
+    resource_group: str | None,
+    cluster_name: str | None,
+    namespace: str | None,
+) -> dict[str, str]:
+    payload: dict[str, str] = {"question": question}
+
+    if subscription_id:
+        payload["subscription"] = subscription_id
+    if resource_group:
+        payload["resource-group"] = resource_group
+    if cluster_name:
+        payload["cluster"] = cluster_name
+    if namespace:
+        payload["namespace"] = namespace
+
+    return payload

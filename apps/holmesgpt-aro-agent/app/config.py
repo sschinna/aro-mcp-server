@@ -18,6 +18,7 @@ class Settings(BaseModel):
     azure_openai_api_version: str = Field(default="2024-10-21")
 
     aro_mcp_base_url: str = Field(default="http://127.0.0.1:8081")
+    conversation_db_path: str = Field(default="./data/holmesgpt_aro.db")
     allow_update_tools: bool = Field(default=False)
 
     @field_validator("aro_mcp_base_url")
@@ -36,6 +37,7 @@ class Settings(BaseModel):
                 azure_openai_deployment_name=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini"),
                 azure_openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
                 aro_mcp_base_url=os.getenv("ARO_MCP_BASE_URL", "http://127.0.0.1:8081"),
+                conversation_db_path=os.getenv("CONVERSATION_DB_PATH", "./data/holmesgpt_aro.db"),
                 allow_update_tools=os.getenv("ALLOW_UPDATE_TOOLS", "false").lower() == "true",
             )
         except ValidationError as exc:
