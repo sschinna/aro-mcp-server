@@ -16,7 +16,7 @@ from .config import settings
 
 
 app = FastAPI(title="HolmesGPT for ARO", version="0.1.0")
-store = OperationStore()
+store = OperationStore(settings.conversation_db_path)
 conversation_store = ConversationStore(settings.conversation_db_path)
 agent = HolmesAroAgent()
 
@@ -39,7 +39,8 @@ async def _run_operation(operation_id: str, request: AskRequest) -> None:
             conversation_turns=turns,
         )
 
-        assistant_summary = result.get("ai_summary") or "No AI synthesis available."
+        ai_summary = result.get("ai_summary") or {}
+        assistant_summary = ai_summary.get("summary") or "No AI synthesis available."
         conversation_store.append_turn(conversation_id, "assistant", assistant_summary)
         store.complete(operation_id, result)
     except Exception as exc:  # noqa: BLE001

@@ -32,3 +32,17 @@ class OperationStatus(BaseModel):
 class ToolPlan(BaseModel):
     read_only_tools: list[str] = Field(default_factory=list)
     update_tools: list[str] = Field(default_factory=list)
+
+
+class AiNextAction(BaseModel):
+    title: str
+    command_or_check: str
+
+
+class AiStructuredSummary(BaseModel):
+    summary: str
+    likely_root_cause: str
+    confidence: str
+    impacted_area: str
+    next_actions: list[AiNextAction] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)

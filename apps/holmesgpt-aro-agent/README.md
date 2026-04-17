@@ -9,6 +9,8 @@ It provides:
 - Read-only by default, with optional guarded update actions
 - Azure OpenAI synthesis for findings summary (when configured)
 - SQLite-backed conversation persistence by `conversation_id`
+- SQLite-backed operation persistence so `/operations` survives restarts
+- Structured AOAI JSON output for consistent downstream parsing
 - ARO context wiring (`subscription`, `resource-group`, `cluster`, `namespace`)
 
 ## Why this scaffold
@@ -82,6 +84,43 @@ Response from `POST /ask` includes a `conversation_id` that can be reused on lat
 - Stored in SQLite at `CONVERSATION_DB_PATH` (default `./data/holmesgpt_aro.db`)
 - Saves user and assistant turns for multi-turn continuity
 - Latest conversation turns are forwarded into AOAI synthesis context
+
+## Durable operations
+
+- Operation state is stored in SQLite in the same database file
+- `GET /operations/{id}` continues to work after process restarts
+- Successful results are stored as JSON payloads for later retrieval
+
+## Structured AOAI response
+
+The app now requests a strict JSON schema from Azure OpenAI and returns `ai_summary` as a structured object with:
+- `summary`
+- `likely_root_cause`
+- `confidence`
+- `impacted_area`
+- `next_actions[]`
+- `evidence[]`
+
+This makes downstream integration with AXEAgents or other orchestrators much more stable.
+
+## Azure hosting viability
+
+Yes, this app can be hosted in Azure and fetch ARO cluster state, with the right topology and permissions.
+
+Recommended pattern:
+- Azure Container Apps hosts the FastAPI app
+- ARO MCP server runs as a sidecar or companion container
+- Managed identity is assigned to the app environment
+- Managed identity gets read access to the ARO resource group and any required supporting resources
+
+Why Container Apps is preferred:
+- Better fit for multi-container topology
+- Easier sidecar pattern for a local MCP endpoint
+- Cleaner secret and identity integration than a single web app process model
+
+For direct ARO access, the app still needs one of these patterns:
+- Preferred: HolmesGPT app -> ARO MCP server -> ARO APIs
+- Alternate: HolmesGPT app directly calls Azure/OpenShift APIs using managed identity and explicit RBAC
 
 ## Next steps
 

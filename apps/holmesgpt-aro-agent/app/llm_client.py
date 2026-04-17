@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 import httpx
+import json
 
 from .config import settings
+from .models import AiStructuredSummary
 
 
 class AzureOpenAISynthesizer:
@@ -22,7 +24,7 @@ class AzureOpenAISynthesizer:
         question: str,
         findings: list[dict[str, Any]],
         conversation_turns: list[dict[str, str]],
-    ) -> str | None:
+    ) -> dict[str, Any] | None:
         if not self.enabled:
             return None
 
@@ -32,8 +34,8 @@ class AzureOpenAISynthesizer:
         )
 
         system_prompt = (
-            "You are HolmesGPT for ARO. Provide concise Kubernetes/OpenShift troubleshooting guidance "
-            "grounded only in supplied findings. Include likely root cause, confidence, and next 3 actions."
+            "You are HolmesGPT for ARO. Return only structured JSON that matches the provided schema. "
+            "Use only the supplied findings and conversation context. Do not invent evidence."
         )
 
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -54,6 +56,47 @@ class AzureOpenAISynthesizer:
             "messages": messages,
             "temperature": 0.2,
             "max_tokens": 800,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "aro_troubleshooting_summary",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "summary": {"type": "string"},
+                            "likely_root_cause": {"type": "string"},
+                            "confidence": {"type": "string"},
+                            "impacted_area": {"type": "string"},
+                            "next_actions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {"type": "string"},
+                                        "command_or_check": {"type": "string"}
+                                    },
+                                    "required": ["title", "command_or_check"],
+                                    "additionalProperties": False
+                                }
+                            },
+                            "evidence": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        },
+                        "required": [
+                            "summary",
+                            "likely_root_cause",
+                            "confidence",
+                            "impacted_area",
+                            "next_actions",
+                            "evidence"
+                        ],
+                        "additionalProperties": False
+                    }
+                }
+            },
         }
 
         headers = {
@@ -73,5 +116,6 @@ class AzureOpenAISynthesizer:
         message = choices[0].get("message", {})
         content = message.get("content")
         if isinstance(content, str):
-            return content.strip()
+            parsed = AiStructuredSummary.model_validate(json.loads(content))
+            return parsed.model_dump()
         return None
