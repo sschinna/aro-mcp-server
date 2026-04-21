@@ -339,7 +339,7 @@ The AI generates a professional write-up with:
 | **Storage** | PVC zone affinity conflicts, StorageClass misconfiguration, disk provisioning failures, RWO access mode constraints |
 | **Capacity planning** | Node count recommendations, VM SKU sizing, workload distribution analysis, headroom calculations |
 
-### Real-World Example: PepsiCo Tekton Pipeline Failure
+### Real-World Example: Tekton Pipeline Failure on ARO
 
 This is a real case diagnosed entirely through the ARO MCP Server without creating any clusters:
 
