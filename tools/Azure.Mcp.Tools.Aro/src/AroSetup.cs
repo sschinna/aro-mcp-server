@@ -23,6 +23,7 @@ public class AroSetup : IAreaSetup
         services.AddSingleton<ClusterGetCommand>();
         services.AddSingleton<ClusterDiagnoseCommand>();
         services.AddSingleton<ClusterSummarizeCommand>();
+        services.AddSingleton<ClusterPreflightCommand>();
         services.AddSingleton<DocumentationListCommand>();
     }
 
@@ -44,6 +45,9 @@ public class AroSetup : IAreaSetup
 
         var clusterSummarize = serviceProvider.GetRequiredService<ClusterSummarizeCommand>();
         cluster.AddCommand(clusterSummarize.Name, clusterSummarize);
+
+        var clusterPreflight = serviceProvider.GetRequiredService<ClusterPreflightCommand>();
+        cluster.AddCommand(clusterPreflight.Name, clusterPreflight);
 
         var documentationList = serviceProvider.GetRequiredService<DocumentationListCommand>();
         documentation.AddCommand(documentationList.Name, documentationList);
