@@ -36,7 +36,7 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 
 ```bash
 git clone https://github.com/microsoft/azure-aro-mcp-server.git
-cd aro-mcp-server
+cd azure-aro-mcp-server
 ```
 
 ### 2. Install the Azure MCP Server binary
@@ -427,7 +427,7 @@ If a teammate clones this repo, here's the minimal checklist to get everything w
 
 3. **Build the MCP server plugin**
    ```bash
-   cd aro-mcp-server
+   cd azure-aro-mcp-server
    dotnet build tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj
    ```
 
@@ -773,7 +773,7 @@ The project references core MCP libraries via DLL from the `azmcp` install direc
 
 ```bash
 git clone https://github.com/microsoft/azure-aro-mcp-server.git
-cd aro-mcp-server
+cd azure-aro-mcp-server
 dotnet build
 ```
 
