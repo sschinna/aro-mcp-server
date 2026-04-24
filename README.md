@@ -17,15 +17,12 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 | Tool | Description |
 |---|---|
 | `aro_cluster_get` | List all ARO clusters in a subscription, or get details of a specific cluster (profiles, networking, API server, worker nodes, provisioning state) |
-| `aro_cluster_diagnose` | AI-powered diagnosis of ARO cluster issues using Azure OpenAI — sends cluster data and your question to GPT-4o for expert analysis |
-| `aro_cluster_summarize` | AI-powered cluster summary — generates a health assessment, configuration overview, and recommendations using Azure OpenAI |
 
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login` authenticated)
 - [VS Code](https://code.visualstudio.com/) with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension
-- [Azure OpenAI](https://learn.microsoft.com/azure/ai-services/openai/) resource with a GPT-4o deployment (for diagnose/summarize tools)
 - An Azure subscription with the `Microsoft.RedHatOpenShift` resource provider registered
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) or [oc CLI](https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/) for cluster operations
 - The pre-built `azmcp.exe` binary (see [Setup](#setup) below)
@@ -102,8 +99,8 @@ Run the login script — it will ask how you want to connect:
 ARO Cluster Login
   How would you like to connect?
 
-  [S] Subscription lookup       — provide subscription ID, resource group, and cluster name
-  [A] API Server direct login   — provide the ARO API server URL, username, and password
+  [S] Subscription lookup  — provide subscription ID, resource group, and cluster name
+  [A] API Server direct    — provide the ARO API server URL
 
 Choose login mode [S/A] (default: S):
 ```
@@ -170,17 +167,6 @@ What the Azure mode script does:
 
 **Requirements:** Azure CLI (`az`), `kubectl`, an Azure subscription with access to the ARO cluster.
 
-### Azure OpenAI Configuration (for AI Tools)
-
-The `aro_cluster_diagnose` and `aro_cluster_summarize` tools require Azure OpenAI. Set these environment variables:
-
-```powershell
-$env:AZURE_OPENAI_ENDPOINT = "https://your-resource.openai.azure.com/"
-$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"  # Your model deployment name
-```
-
-Authentication uses `DefaultAzureCredential` (Azure CLI, Managed Identity, etc.). Ensure your identity has the **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
-
 #### After login (either mode)
 
 ```bash
@@ -196,276 +182,6 @@ oc get clusterversion
 1. Open VS Code and switch Copilot Chat to **Agent mode**
 2. Click the **Tools icon** (wrench) to verify `aro_cluster_get` is listed
 3. Ask a question about your ARO clusters
-
-## Customer Issue Diagnosis (Without Creating Clusters)
-
-One of the most powerful use cases for the ARO MCP Server is **diagnosing customer cluster issues without creating any ARO clusters in your own subscription**. Instead of provisioning infrastructure to reproduce a problem, you feed diagnostic data into the MCP server's AI tools and get expert-level root cause analysis instantly.
-
-### Why This Matters
-
-| Traditional Approach | With ARO MCP Server |
-|---|---|
-| Reproduce issue in your own subscription | No cluster needed — analyze logs directly |
-| Create ARO cluster (~35-45 min + cost) | Instant analysis via Azure OpenAI |
-| Manually correlate logs, events, node status | AI correlates all data automatically |
-| Requires deep OpenShift/K8s expertise | LLM provides expert-level insights |
-| Analysis tied to one engineer's knowledge | Consistent, repeatable analysis across the team |
-
-### Step-by-Step: Diagnosing a Customer Issue
-
-#### Step 1 — Collect Diagnostic Data from the Customer
-
-Ask the customer (or collect via jump host) to run these commands on their ARO cluster. You do **not** need access to the customer's Azure subscription:
-
-**Cluster overview:**
-```bash
-oc get nodes -o wide
-oc adm top nodes
-oc get clusterversion
-oc get clusteroperators
-```
-
-**Node health (for each problematic node):**
-```bash
-oc describe node <node-name>
-oc get node <node-name> -o jsonpath='{.spec.taints}'
-```
-
-**Pod scheduling issues:**
-```bash
-oc get pods -n <namespace> --field-selector status.phase!=Running
-oc describe pod <stuck-pod-name> -n <namespace>
-oc get events -n <namespace> --sort-by='.lastTimestamp' | tail -30
-```
-
-**Storage issues:**
-```bash
-oc get pvc -n <namespace>
-oc describe pvc <pvc-name> -n <namespace>
-oc get pv <pv-name> -o yaml
-```
-
-**Node disk pressure (SSH/debug pod):**
-```bash
-oc debug node/<node-name>
-chroot /host
-df -h /
-du -sh /var/lib/containers/storage
-podman images --format "{{.Repository}}:{{.Tag}} {{.Size}}"
-crictl ps -a --state exited | wc -l
-```
-
-**Pipeline-specific (Tekton):**
-```bash
-oc get pipelinerun -n <namespace>
-oc get configmap feature-flags -n openshift-pipelines -o yaml
-oc describe pipelinerun <run-name> -n <namespace>
-```
-
-#### Step 2 — Open VS Code with ARO MCP Server
-
-1. Open VS Code with the `aro-mcp-server` workspace (or any workspace with the MCP server configured)
-2. Switch Copilot Chat to **Agent mode** (click the mode dropdown)
-3. Verify the MCP tools are loaded — click the **Tools icon** (wrench) and confirm `aro_cluster_diagnose` is listed
-
-#### Step 3 — Feed Diagnostic Data to the AI
-
-Paste the collected diagnostic output into the Copilot chat along with the customer's problem description:
-
-```
-User: Customer's Tekton pipeline pods are stuck in Pending state on their ARO cluster.
-      They have 4 worker nodes and 5 dedicated infra nodes.
-      
-      Here's the output from their cluster:
-      
-      [paste oc get nodes -o wide output]
-      [paste oc adm top nodes output]
-      [paste oc describe node output for problematic nodes]
-      [paste oc get events output]
-      [paste oc describe pvc output]
-      [paste podman images output from the node]
-```
-
-#### Step 4 — Receive AI-Powered Root Cause Analysis
-
-The MCP server sends the data to Azure OpenAI (GPT-4o) via the `aro_cluster_diagnose` tool and returns structured analysis:
-
-```
-Copilot → aro_cluster_diagnose:
-
-  ROOT CAUSE:
-  ✅ 3 of 4 worker nodes at 95-99% CPU requests — no scheduling headroom
-  ✅ All pipeline builds forced onto the only node with available CPU (fqzxn)
-  ✅ 12 stale pipeline images (4 GB each) accumulated → 141 GB → DiskPressure
-  ✅ DiskPressure taint makes the node unschedulable → 0 nodes available
-
-  IMMEDIATE FIX:
-  • Clean stale pipeline images: podman rmi old int-server images
-  • Delete completed PipelineRuns: oc delete pipelinerun <old-runs>
-  • Verify disk pressure taint clears automatically
-
-  LONG-TERM RECOMMENDATIONS:
-  • Add 2+ worker nodes via MachineSet (cluster is under-provisioned)
-  • Configure Tekton pruner to auto-delete old PipelineRuns
-  • Tune ImageGC thresholds (75% instead of 85%)
-  • Switch pipelines to volumeClaimTemplate for ephemeral PVCs
-```
-
-#### Step 5 — Generate Customer Recommendation
-
-Ask Copilot to format the analysis into a customer-facing recommendation:
-
-```
-User: Draft a customer recommendation document with the root cause,
-      immediate actions, and long-term fixes with commands.
-```
-
-The AI generates a professional write-up with:
-- Root cause analysis table
-- Step-by-step remediation commands
-- Priority-ordered recommendations (P0/P1/P2/P3)
-- Capacity planning guidance
-
-### What You Can Diagnose
-
-| Category | Examples |
-|---|---|
-| **Scheduling failures** | Pod stuck Pending, taint/toleration mismatches, node affinity conflicts, insufficient CPU/memory requests |
-| **Disk pressure** | Image accumulation from CI/CD pipelines, ephemeral storage exhaustion, container log bloat, ImageGC failures |
-| **Networking issues** | DNS resolution failures, ingress/route misconfigurations, egress firewall blocks, OVN/SDN issues |
-| **Cluster operators** | Degraded/unavailable operators, certificate expiration, etcd health, authentication failures |
-| **Upgrade failures** | Version incompatibilities, stuck MachineConfigPools, failed machine rollouts, deprecated API usage |
-| **Pipeline/CI-CD** | Tekton scheduling with `coschedule`, PVC zone pinning, build image storage, pipeline run cleanup |
-| **Storage** | PVC zone affinity conflicts, StorageClass misconfiguration, disk provisioning failures, RWO access mode constraints |
-| **Capacity planning** | Node count recommendations, VM SKU sizing, workload distribution analysis, headroom calculations |
-
-### Real-World Example: Tekton Pipeline Failure on ARO
-
-This is a real case diagnosed entirely through the ARO MCP Server without creating any clusters:
-
-| Phase | What Happened | How MCP Server Helped |
-|---|---|---|
-| **Initial report** | Pipeline pods stuck Pending | Analyzed `oc describe pod` events — identified PVC + node affinity conflict |
-| **Node investigation** | 1 node had DiskPressure | Analyzed `oc adm top nodes` + taints — found 141 GB in container storage |
-| **Root cause** | 12 stale 4 GB images from old builds | Analyzed `podman images` output — identified pipeline image accumulation |
-| **Deeper analysis** | Why only 1 node? | Analyzed `oc describe node` allocations — found 3/4 workers at 99% CPU |
-| **Resolution** | Clean images + add nodes | Generated step-by-step cleanup commands + capacity planning recommendation |
-
-**Total time:** ~30 minutes from first diagnostic paste to complete customer recommendation document.
-**Clusters created:** Zero.
-**Azure cost:** Only the Azure OpenAI API calls (~$0.05).
-
-### Architecture — Data Flow with LLM and Log Storage
-
-```mermaid
-flowchart LR
-    subgraph Customer["Customer Environment"]
-        CC["ARO Cluster"]
-        JH["Jump Host / SSH"]
-        CL["Diagnostic Logs\noc describe, events,\ntop nodes, pod logs,\npodman images"]
-        CC --> JH
-        JH --> CL
-    end
-
-    subgraph Engineer["Support Engineer (Local)"]
-        VS["VS Code\n+ Copilot Agent Mode"]
-        MCP["ARO MCP Server\n(aro_cluster_get,\naro_cluster_diagnose,\naro_cluster_summarize)"]
-        LS["Log Storage\n(paste into chat /\nattach files /\nlocal workspace)"]
-        VS <-->|"Natural language\nquestions"| MCP
-        LS -->|"Diagnostic\ndata"| VS
-    end
-
-    subgraph Azure["Azure Cloud"]
-        AOAI["Azure OpenAI (GPT-4o)\n• Root cause analysis\n• Pattern recognition\n• Recommendation generation"]
-        ARM["Azure Resource Manager\n• Cluster metadata\n• Configuration lookup\n• Subscription queries"]
-        LA["Log Analytics (Optional)\n• Historical metrics\n• Diagnostic logs\n• KQL queries"]
-    end
-
-    CL -->|"1. Collect logs\n(no subscription needed)"| LS
-    MCP -->|"2. aro_cluster_get\n(if subscription access exists)"| ARM
-    MCP -->|"3. aro_cluster_diagnose\naro_cluster_summarize\n(sends logs + question)"| AOAI
-    AOAI -->|"4. Root cause analysis\n& recommendations"| MCP
-    ARM -->|"Cluster config\n& metadata"| MCP
-    MCP -.->|"5. Optional: query\nhistorical logs"| LA
-
-    style AOAI fill:#4a90d9,color:#fff
-    style MCP fill:#2d8659,color:#fff
-    style CC fill:#c0392b,color:#fff
-```
-
-### How Each Component Works
-
-| Component | Role | Required? |
-|---|---|---|
-| **VS Code + Copilot** | User interface — paste logs, ask questions, receive analysis | Yes |
-| **ARO MCP Server** | Routes requests to the correct tool (get, diagnose, summarize) | Yes |
-| **Azure OpenAI (GPT-4o)** | LLM that analyzes diagnostic data and generates root cause + recommendations | Yes (for diagnose/summarize) |
-| **Azure Resource Manager** | Queries live cluster metadata from Azure (if you have subscription access) | Optional — not needed for log-based diagnosis |
-| **Log Analytics** | Stores and queries historical diagnostic logs via KQL | Optional — for monitoring trends |
-| **Customer's Cluster** | Source of diagnostic data — you never need direct access | Only the customer accesses it |
-
-**Key insight:** The LLM (Azure OpenAI) receives the cluster diagnostic data and returns expert analysis. No customer cluster access or Azure subscription is needed from the engineer — only the diagnostic output (logs, descriptions, events) collected by the customer or via a jump host.
-
-## Teammate Onboarding (Quick Start)
-
-If a teammate clones this repo, here's the minimal checklist to get everything working:
-
-### Step-by-step
-
-1. **Install .NET 10 SDK**
-   ```bash
-   # Verify: dotnet --version should show 10.x
-   ```
-
-2. **Install Azure CLI and authenticate**
-   ```bash
-   az account clear                              # one-time fix for Windows token cache
-   az config set core.enable_broker_on_windows=false  # one-time fix for Windows
-   az login
-   az account set --subscription <SUBSCRIPTION_ID>
-   ```
-
-3. **Build the MCP server plugin**
-   ```bash
-   cd aro-mcp-server
-   dotnet build tools/Azure.Mcp.Tools.Aro/src/Azure.Mcp.Tools.Aro.csproj
-   ```
-
-4. **Install the Azure MCP runtime** — Place `azmcp.exe` in `~/.aro-mcp/`:
-   ```powershell
-   # Option A: Install via .NET global tool
-   dotnet tool install --global Azure.Mcp
-
-   # Option B: Copy a pre-built binary
-   New-Item -ItemType Directory -Force "$env:USERPROFILE\.aro-mcp"
-   Copy-Item /path/to/azmcp.exe "$env:USERPROFILE\.aro-mcp\"
-   ```
-
-5. **Open the workspace in VS Code** — `.vscode/mcp.json` auto-registers the server. No manual config needed.
-
-6. **Login to your ARO cluster**
-   ```powershell
-   .\scripts\aro-login.ps1
-   ```
-
-7. **(Optional) Configure Azure OpenAI for AI tools** — Only needed for `aro_cluster_diagnose` and `aro_cluster_summarize`:
-   ```powershell
-   $env:AZURE_OPENAI_ENDPOINT = "https://<your-resource>.openai.azure.com/"
-   $env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
-   ```
-   Your identity also needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
-
-### What works out of the box vs. what doesn't
-
-| Component | Portable? | Notes |
-|---|---|---|
-| Source code & build | ✅ Yes | Standard .NET project, no hardcoded paths |
-| `.vscode/mcp.json` | ✅ Yes | Uses `azmcp` from PATH or `~/.aro-mcp/` (via `$(USERPROFILE)`) |
-| Azure authentication | ✅ Yes | `DefaultAzureCredential` — works with any user's `az login` |
-| `azmcp.exe` runtime | ⚠️ Manual | Must be installed per-user (see step 4) |
-| ARO cluster access | ⚠️ Manual | Each user needs `az login` + RBAC on the subscription |
-| Azure OpenAI (AI tools) | ⚠️ Optional | Env vars + role assignment needed (see step 7) |
-| `obj/` build artifacts | ✅ Gitignored | User-specific NuGet paths in `obj/` are not committed |
 
 ## Usage Examples
 
@@ -630,10 +346,6 @@ The `aro-deploy/` directory contains a Bicep template for creating an ARO cluste
    ```
 
 ### Deploy an ARO Cluster
-
-#### Cluster Creation Demo Video
-
-https://github.com/sschinna/aro-mcp-server/releases/download/demo-videos/aro_cluster_creation_compressed.mp4
 
 ```bash
 # Set variables
