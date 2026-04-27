@@ -49,6 +49,53 @@ function Show-Command {
     Write-Host "  $Command" -ForegroundColor Yellow
 }
 
+function Get-NodeSummaryLines {
+    param([string]$OcCommand)
+
+    $nodeJson = & $OcCommand get nodes -o json | ConvertFrom-Json
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add(("{0,-46} {1,-22} {2,-7} {3,-9} {4,-15}" -f "NAME", "ROLES", "READY", "VERSION", "INTERNAL-IP")) | Out-Null
+
+    foreach ($item in $nodeJson.items) {
+        $roles = @($item.metadata.labels.PSObject.Properties.Name |
+            Where-Object { $_ -like 'node-role.kubernetes.io/*' } |
+            ForEach-Object { ($_ -replace 'node-role.kubernetes.io/', '') })
+        if (-not $roles -or $roles.Count -eq 0) {
+            $roles = @('worker')
+        }
+
+        $readyCondition = $item.status.conditions | Where-Object { $_.type -eq 'Ready' } | Select-Object -First 1
+        $internalIp = ($item.status.addresses | Where-Object { $_.type -eq 'InternalIP' } | Select-Object -First 1).address
+        $lines.Add(("{0,-46} {1,-22} {2,-7} {3,-9} {4,-15}" -f $item.metadata.name, ($roles -join ','), $readyCondition.status, $item.status.nodeInfo.kubeletVersion, $internalIp)) | Out-Null
+    }
+
+    return $lines
+}
+
+function Get-PodSummaryLines {
+    param(
+        [string]$OcCommand,
+        [string]$Namespace
+    )
+
+    $podJson = & $OcCommand get pods -n $Namespace -o json | ConvertFrom-Json
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add(("{0,-30} {1,-7} {2,-12} {3,-8} {4,-30}" -f "NAME", "READY", "STATUS", "RESTARTS", "NODE")) | Out-Null
+
+    foreach ($item in $podJson.items) {
+        $readyCount = @($item.status.containerStatuses | Where-Object { $_.ready }).Count
+        $totalCount = @($item.status.containerStatuses).Count
+        $restartCount = (@($item.status.containerStatuses | Measure-Object -Property restartCount -Sum).Sum)
+        if ($null -eq $restartCount) {
+            $restartCount = 0
+        }
+
+        $lines.Add(("{0,-30} {1,-7} {2,-12} {3,-8} {4,-30}" -f $item.metadata.name, "$readyCount/$totalCount", $item.status.phase, $restartCount, $item.spec.nodeName)) | Out-Null
+    }
+
+    return $lines
+}
+
 Show-Section "Demo Context"
 Write-Host "Audience: Engineering + Leadership" -ForegroundColor Gray
 Write-Host "Objective: Show ARO operations with MCP tools and production-style diagnostics" -ForegroundColor Gray
@@ -119,14 +166,14 @@ if ($RunLive) {
     & $ocCmd get clusterversion
 
     Write-Host "`n[Nodes]" -ForegroundColor Green
-    & $ocCmd get nodes -o wide
+    Get-NodeSummaryLines -OcCommand $ocCmd | ForEach-Object { Write-Host $_ }
 
     Write-Host "`n[Node Metrics]" -ForegroundColor Green
     & $ocCmd adm top nodes
 
     Write-Host "`n[DNS Operator]" -ForegroundColor Green
     & $ocCmd get clusteroperator dns
-    & $ocCmd get pods -n openshift-dns -o wide
+    Get-PodSummaryLines -OcCommand $ocCmd -Namespace "openshift-dns" | ForEach-Object { Write-Host $_ }
 
     Write-Host "`n[ARO Metadata via azmcp CLI]" -ForegroundColor Green
     if (-not $azmcpCmd) {
