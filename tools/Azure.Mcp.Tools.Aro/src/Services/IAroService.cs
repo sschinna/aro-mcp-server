@@ -15,4 +15,14 @@ public interface IAroService
         string? tenant = null,
         RetryPolicyOptions? retryPolicy = null,
         CancellationToken cancellationToken = default);
+
+    Task<List<PreflightResult>> CheckPreflight(
+        string subscription,
+        string? location,
+        string masterVmSize,
+        string workerVmSize,
+        string? version,
+        string? tenant = null,
+        RetryPolicyOptions? retryPolicy = null,
+        CancellationToken cancellationToken = default);
 }

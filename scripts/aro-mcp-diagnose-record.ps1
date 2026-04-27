@@ -9,6 +9,9 @@
 
 .EXAMPLE
     .\scripts\aro-mcp-diagnose-record.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
+
+.EXAMPLE
+    pwsh ./scripts/aro-mcp-diagnose-record.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
 #>
 
 param(
@@ -162,9 +165,9 @@ if ($etcdPod) {
     Write-Section -Buffer $report -Title "ETCD Endpoint Status" -Content $etcdStatus
 }
 
-$workerNode = (& $oc get nodes -o name 2>$null | Select-String "worker" | Select-Object -First 1).ToString()
+$workerNode = @(& $oc get nodes -o name 2>$null | Where-Object { $_ -match 'worker' } | Select-Object -First 1)
 if ($workerNode) {
-    $workerName = ($workerNode -replace '^node/', '').Trim()
+    $workerName = ($workerNode[0].ToString() -replace '^node/', '').Trim()
     $mcrCheck = Run-And-Capture -Command $oc -Arguments @("debug", "node/$workerName", "--", "chroot", "/host", "bash", "-lc", "curl -sS --max-time 15 -o /dev/null -w 'DNS:%{time_namelookup}s CONNECT:%{time_connect}s TLS:%{time_appconnect}s HTTP:%{http_code}`n' https://mcr.microsoft.com/v2/")
     Write-Section -Buffer $report -Title "MCR Connectivity From Worker" -Content $mcrCheck
 }

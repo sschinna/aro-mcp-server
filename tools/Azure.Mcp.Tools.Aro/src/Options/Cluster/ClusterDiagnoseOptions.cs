@@ -5,11 +5,11 @@ using System.Text.Json.Serialization;
 
 namespace Azure.Mcp.Tools.Aro.Options.Cluster;
 
-public class ClusterGetOptions : BaseAroOptions
+public class ClusterDiagnoseOptions : BaseAroOptions
 {
     [JsonPropertyName(AroOptionDefinitions.ClusterName)]
     public string? ClusterName { get; set; }
 
-    [JsonPropertyName(AroOptionDefinitions.AllowSubscriptionEnumerationName)]
-    public bool AllowSubscriptionEnumeration { get; set; }
+    [JsonPropertyName(AroOptionDefinitions.QuestionName)]
+    public string? Question { get; set; }
 }

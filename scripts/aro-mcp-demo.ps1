@@ -11,6 +11,12 @@
 
 .EXAMPLE
     .\scripts\aro-mcp-demo.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster" -RunLive
+
+.EXAMPLE
+    pwsh ./scripts/aro-mcp-demo.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster"
+
+.EXAMPLE
+    pwsh ./scripts/aro-mcp-demo.ps1 -SubscriptionId "<sub-id>" -ResourceGroup "aro-mcp-centralus" -ClusterName "aro-mcp-cluster" -RunLive
 #>
 
 param(
@@ -125,6 +131,7 @@ Show-Command "oc get clusterversion"
 Show-Command "oc get clusteroperators"
 Write-Host "3) Show node-level health and scale" -ForegroundColor Green
 Show-Command "oc get nodes -o wide"
+Show-Command "oc adm top nodes"
 Write-Host "4) Show DNS platform reliability" -ForegroundColor Green
 Show-Command "oc get clusteroperator dns"
 Show-Command "oc get pods -n openshift-dns -o wide"
@@ -160,6 +167,9 @@ if ($RunLive) {
 
     Write-Host "`n[Nodes]" -ForegroundColor Green
     Get-NodeSummaryLines -OcCommand $ocCmd | ForEach-Object { Write-Host $_ }
+
+    Write-Host "`n[Node Metrics]" -ForegroundColor Green
+    & $ocCmd adm top nodes
 
     Write-Host "`n[DNS Operator]" -ForegroundColor Green
     & $ocCmd get clusteroperator dns
