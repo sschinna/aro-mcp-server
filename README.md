@@ -15,8 +15,10 @@ This MCP server exposes ARO cluster operations as tools that AI agents can invok
 - *"List my ARO clusters in subscription xyz"*
 - *"Get details of aro-mcp-cluster in resource group aro-mcp-centralus"*
 - *"What's the provisioning state of my ARO cluster?"*
+- *"Run a pre-flight check for ARO deployment in eastus"*
+- *"Show me ARO documentation on networking"*
 
-Copilot will automatically call the `aro_cluster_get` tool to retrieve live data from your Azure subscription.
+Copilot will automatically call the appropriate ARO tool to retrieve live data from your Azure subscription.
 
 ## Available Tools
 
@@ -25,6 +27,8 @@ Copilot will automatically call the `aro_cluster_get` tool to retrieve live data
 | `aro_cluster_get` | List all ARO clusters in a subscription, or get details of a specific cluster (profiles, networking, API server, worker nodes, provisioning state) |
 | `aro_cluster_diagnose` | AI-powered diagnosis of ARO cluster issues using Azure OpenAI — sends cluster data and your question to GPT-4o for expert analysis |
 | `aro_cluster_summarize` | AI-powered cluster summary — generates a health assessment, configuration overview, and recommendations using Azure OpenAI |
+| `aro_cluster_preflight` | Pre-flight check for ARO cluster deployment — validates VM SKU availability and ARO version support across regions in parallel |
+| `aro_documentation_list` | List curated ARO public documentation from Azure Learn and Red Hat docs with optional provider and topic filters |
 
 ## Prerequisites
 
@@ -200,7 +204,7 @@ oc get clusterversion
 ### 6. Use with Copilot
 
 1. Open VS Code and switch Copilot Chat to **Agent mode**
-2. Click the **Tools icon** (wrench) to verify `aro_cluster_get` is listed
+2. Click the **Tools icon** (wrench) to verify all 5 ARO tools are listed (`aro_cluster_get`, `aro_cluster_diagnose`, `aro_cluster_summarize`, `aro_cluster_preflight`, `aro_documentation_list`)
 3. Ask a question about your ARO clusters
 
 ## Customer Issue Diagnosis (Without Creating Clusters)

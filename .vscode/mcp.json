@@ -5,11 +5,7 @@
       "command": "azmcp",
       "args": [
         "server",
-        "start",
-        "--tool",
-        "aro_cluster_get",
-        "--tool",
-        "aro_documentation_list"
+        "start"
       ]
     }
   }
